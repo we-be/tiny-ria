@@ -58,9 +58,19 @@ jobs:
       if: github.ref != 'refs/heads/main'
       run: |
         cd quotron
-        # Use demo key with limited test scope
+        # Install yfinance for the proxy server
+        cd api-scraper
+        pip install -r scripts/requirements.txt
+        cd ..
+        
+        # Try Alpha Vantage first
         export ALPHA_VANTAGE_API_KEY=demo
-        python tests/integration/test_integration.py --api
+        python tests/integration/test_integration.py --api || {
+          # Fall back to Yahoo Finance if Alpha Vantage fails
+          echo "Alpha Vantage test failed, falling back to Yahoo Finance"
+          export USE_YAHOO_FINANCE=true
+          python tests/integration/test_integration.py --api
+        }
 
     # Run other integration tests
     - name: Run other integration tests

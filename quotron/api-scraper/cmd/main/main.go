@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/tiny-ria/quotron/api-scraper/internal/models"
@@ -14,20 +15,47 @@ import (
 )
 
 func main() {
-	// Alpha Vantage API key from https://www.alphavantage.co/support/#api-key
-	apiKey := flag.String("api-key", os.Getenv("ALPHA_VANTAGE_API_KEY"), "Alpha Vantage API key")
+	// Command line flags
+	apiKey := flag.String("api-key", os.Getenv("ALPHA_VANTAGE_API_KEY"), "Alpha Vantage API key (not needed for Yahoo)")
 	baseURL := flag.String("base-url", "https://www.alphavantage.co", "Base URL for Alpha Vantage API")
 	symbol := flag.String("symbol", "AAPL", "Stock symbol to fetch")
 	index := flag.String("index", "^GSPC", "Market index to fetch (^GSPC, ^DJI, ^IXIC)")
 	outputJson := flag.Bool("json", false, "Output results as JSON")
+	useYahoo := flag.Bool("yahoo", false, "Use Yahoo Finance instead of Alpha Vantage")
 	flag.Parse()
 
-	if *apiKey == "" {
-		log.Fatal("API key is required. Set ALPHA_VANTAGE_API_KEY environment variable or provide --api-key flag")
+	// Context for API requests
+	ctx := context.Background()
+	
+	// Choose API client based on flags
+	var apiClient interface {
+		GetStockQuote(ctx context.Context, symbol string) (*models.StockQuote, error)
+		GetMarketData(ctx context.Context, index string) (*models.MarketData, error)
 	}
 
-	apiClient := client.NewAPIClient(*baseURL, *apiKey, 30*time.Second)
-	ctx := context.Background()
+	// We'll initialize the client (with potential cleanup in defer)
+
+	// Initialize the client based on flags
+	if *useYahoo {
+		// Try using the Python proxy first (most reliable)
+		proxyCl, err := client.NewYahooProxyClient(30 * time.Second)
+		if err == nil {
+			// No need to save reference, we use defer
+			apiClient = proxyCl
+			// Make sure to stop the proxy on exit
+			defer proxyCl.Stop()
+		} else {
+			// Fall back to direct REST API if proxy fails
+			log.Printf("Warning: Failed to start Yahoo Finance proxy: %v, falling back to direct API", err)
+			apiClient = client.NewYahooRestClient(30 * time.Second)
+		}
+	} else {
+		// Check if API key is provided for Alpha Vantage
+		if *apiKey == "" {
+			log.Fatal("Alpha Vantage API key is required. Set ALPHA_VANTAGE_API_KEY environment variable, provide --api-key flag, or use --yahoo flag for Yahoo Finance")
+		}
+		apiClient = client.NewAPIClient(*baseURL, *apiKey, 30*time.Second)
+	}
 	
 	// Fetch stock quote
 	fmt.Printf("Fetching quote for %s...\n", *symbol)
@@ -47,11 +75,29 @@ func main() {
 		}
 	}
 
+	// Use index parameter if provided, otherwise default
+	indexSymbol := *index
+	if indexSymbol == "" {
+		indexSymbol = "^GSPC" // Default to S&P 500
+	}
+	
 	// Fetch market data for an index
-	fmt.Printf("Fetching market data for %s...\n", *index)
-	marketData, err := apiClient.GetMarketData(ctx, *index)
+	fmt.Printf("Fetching market data for %s...\n", indexSymbol)
+	marketData, err := apiClient.GetMarketData(ctx, indexSymbol)
 	if err != nil {
-		log.Printf("Failed to get market data: %v", err)
+		// Check if the error contains information about API limits or timing
+		if strings.Contains(err.Error(), "API call frequency") ||
+		   strings.Contains(err.Error(), "Thank you for using Alpha Vantage") {
+			log.Printf("API limit reached: %v", err)
+		} else {
+			log.Printf("Failed to get market data: %v", err)
+		}
+		
+		// If we got a quote, don't exit with error even if market data failed
+		if quote != nil {
+			// Not a critical error if at least the stock quote worked
+			fmt.Println("Note: Market data may not be available with your current API key.")
+		}
 	} else {
 		if *outputJson {
 			marketJson, _ := json.MarshalIndent(marketData, "", "  ")
@@ -64,8 +110,8 @@ func main() {
 		}
 	}
 	
-	// If both operations failed, exit with error
-	if err != nil && quote == nil && marketData == nil {
+	// Only exit with error if both operations failed
+	if quote == nil && marketData == nil {
 		os.Exit(1)
 	}
 }
