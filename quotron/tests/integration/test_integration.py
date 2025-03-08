@@ -36,9 +36,14 @@ def test_api_scraper():
     
     api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "demo")
     api_scraper_path = project_root / "api-scraper"
+    use_yahoo = os.getenv("USE_YAHOO_FINANCE", "false").lower() in ["true", "1", "yes"]
     
-    # If using the demo key, we'll use a simpler command to avoid rate limits
-    if api_key == "demo":
+    # Choose command based on settings
+    if use_yahoo:
+        # Use Yahoo Finance instead of Alpha Vantage
+        logger.info("Using Yahoo Finance for testing")
+        cmd = ["./api-scraper", "--symbol", "AAPL", "--yahoo", "--json"]
+    elif api_key == "demo":
         logger.warning("Using demo API key - limited functionality available")
         cmd = ["./api-scraper", "--symbol", "IBM", "--api-key", "demo", "--json"]
     else:
@@ -52,7 +57,11 @@ def test_api_scraper():
             logger.info(f"Building API scraper: {' '.join(build_cmd)}")
             subprocess.run(build_cmd, cwd=api_scraper_path, check=True)
         
-        logger.info(f"Running API scraper: ./api-scraper --symbol {'IBM' if api_key == 'demo' else 'AAPL'} --api-key [HIDDEN]")
+        if use_yahoo:
+            logger.info("Running API scraper with Yahoo Finance: ./api-scraper --symbol AAPL --yahoo")
+        else:
+            logger.info(f"Running API scraper: ./api-scraper --symbol {'IBM' if api_key == 'demo' else 'AAPL'} --api-key [HIDDEN]")
+        
         result = subprocess.run(cmd, cwd=api_scraper_path, capture_output=True, text=True)
         
         if result.returncode == 0:
@@ -67,10 +76,12 @@ def test_api_scraper():
         else:
             logger.warning(f"API scraper test failed with exit code {result.returncode}")
             logger.warning(f"Error: {result.stderr}")
-            if api_key == "demo":
+            if api_key == "demo" and not use_yahoo:
                 logger.warning("This is expected with the demo key due to API limitations")
-            else:
+            elif not use_yahoo:
                 logger.warning("API key may be invalid or rate limited")
+            else:
+                logger.warning("Yahoo Finance integration error - check the proxy server")
     except Exception as e:
         logger.error(f"Error testing API scraper: {e}")
 

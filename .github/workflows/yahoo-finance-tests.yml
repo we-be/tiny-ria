@@ -1,0 +1,78 @@
+name: Yahoo Finance Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'quotron/api-scraper/**'
+      - 'quotron/api-scraper/scripts/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'quotron/api-scraper/**'
+      - 'quotron/api-scraper/scripts/**'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        cd quotron/api-scraper
+        pip install -r scripts/requirements.txt
+
+    - name: Build API Scraper
+      run: |
+        cd quotron/api-scraper
+        go build -o api-scraper ./cmd/main
+
+    - name: Test Yahoo Finance Integration
+      run: |
+        cd quotron/api-scraper
+        # Run with Yahoo Finance flag
+        ./api-scraper --yahoo --symbol AAPL
+        # Test with a different symbol
+        ./api-scraper --yahoo --symbol MSFT
+        # Test a market index
+        ./api-scraper --yahoo --index ^GSPC
+        # Test JSON output
+        ./api-scraper --yahoo --symbol GOOG --json > yahoo_test_output.json
+        # Verify JSON output contains expected fields
+        cat yahoo_test_output.json | grep -q "price" && \
+        cat yahoo_test_output.json | grep -q "change" && \
+        cat yahoo_test_output.json | grep -q "volume" && \
+        cat yahoo_test_output.json | grep -q "timestamp" && \
+        echo "JSON validation successful"
+
+    - name: Test Yahoo Proxy Server Directly
+      run: |
+        cd quotron/api-scraper
+        # Start the proxy server in background
+        python3 scripts/yfinance_proxy.py --port 8081 &
+        # Save the PID to kill it later
+        PROXY_PID=$!
+        # Wait for server to start
+        sleep 5
+        # Test the health endpoint
+        curl -s http://localhost:8081/health | grep -q "ok" && echo "Health check successful"
+        # Test the quote endpoint
+        curl -s "http://localhost:8081/quote?symbol=AAPL" | grep -q "symbol" && echo "Quote endpoint successful"
+        # Test the market endpoint
+        curl -s "http://localhost:8081/market?index=^GSPC" | grep -q "indexName" && echo "Market endpoint successful"
+        # Kill the proxy server
+        kill $PROXY_PID

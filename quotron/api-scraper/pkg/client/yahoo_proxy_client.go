@@ -32,7 +32,7 @@ func NewYahooProxyClient(timeout time.Duration) (*YahooProxyClient, error) {
 	proxyURL := "http://localhost:8080"
 
 	// Start the Python proxy server in the background with Python
-	scriptPath := "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/scripts/yfinance_proxy.py"
+	scriptPath := "./scripts/yfinance_proxy.py"
 	cmd := exec.Command("python3", scriptPath, "--host", "localhost", "--port", "8080")
 	if err := cmd.Start(); err != nil {
 		return nil, errors.Wrap(err, "failed to start Yahoo Finance proxy server")

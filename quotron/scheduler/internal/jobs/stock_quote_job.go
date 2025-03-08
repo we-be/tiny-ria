@@ -68,8 +68,29 @@ func (j *StockQuoteJob) Execute(ctx context.Context, params map[string]string) e
 			log.Print(errMsg)
 			errors = append(errors, errMsg)
 			
-			// Check if we should abort (API key issues, rate limits, etc.)
-			if strings.Contains(err.Error(), "API key") || 
+			// Check if we should try fallback or abort
+			if (strings.Contains(err.Error(), "API key") || 
+			   strings.Contains(err.Error(), "rate limit") ||
+			   strings.Contains(err.Error(), "Thank you for using Alpha Vantage")) && j.fallbackEnabled {
+				
+				log.Printf("Alpha Vantage API issue detected, trying Yahoo Finance fallback for %s", symbol)
+				if fallbackErr := j.fetchQuoteYahoo(ctx, symbol); fallbackErr != nil {
+					errMsg := fmt.Sprintf("Fallback error for %s: %v", symbol, fallbackErr)
+					log.Print(errMsg)
+					errors = append(errors, errMsg)
+					
+					// If both primary and fallback failed, report but continue with next symbol
+					continue
+				} else {
+					// Fallback succeeded, remove the error for this symbol
+					log.Printf("Yahoo Finance fallback succeeded for %s", symbol)
+					// Remove the last error since the fallback succeeded
+					if len(errors) > 0 {
+						errors = errors[:len(errors)-1]
+					}
+					continue
+				}
+			} else if strings.Contains(err.Error(), "API key") || 
 			   strings.Contains(err.Error(), "rate limit") ||
 			   strings.Contains(err.Error(), "Thank you for using Alpha Vantage") {
 				return fmt.Errorf("stopping due to API issues: %w", err)
@@ -97,6 +118,11 @@ func (j *StockQuoteJob) Execute(ctx context.Context, params map[string]string) e
 
 // fetchQuote fetches a stock quote for a single symbol using Alpha Vantage
 func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
+	// Check if apiKey is "demo" and use Yahoo Finance directly
+	if j.apiKey == "demo" && j.fallbackEnabled {
+		return j.fetchQuoteYahoo(ctx, symbol)
+	}
+
 	// Prepare command to run the API scraper
 	args := []string{"--api-key", j.apiKey, "--symbol", symbol}
 	if j.outputJSON {
