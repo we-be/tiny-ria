@@ -151,16 +151,19 @@ def main():
     quotes_parser.add_argument("file", help="Path to the JSON file containing stock quotes")
     quotes_parser.add_argument("--source", choices=["api-scraper", "browser-scraper", "manual"], 
                               default="manual", help="Source of the data")
+    quotes_parser.add_argument("--allow-old-data", action="store_true", help="Allow processing of historical data")
     
     indices_parser = subparsers.add_parser("indices", help="Process a file of market indices")
     indices_parser.add_argument("file", help="Path to the JSON file containing market indices")
     indices_parser.add_argument("--source", choices=["api-scraper", "browser-scraper", "manual"], 
                                default="manual", help="Source of the data")
+    indices_parser.add_argument("--allow-old-data", action="store_true", help="Allow processing of historical data")
     
     mixed_parser = subparsers.add_parser("mixed", help="Process a file containing both quotes and indices")
     mixed_parser.add_argument("file", help="Path to the JSON file containing mixed data")
     mixed_parser.add_argument("--source", choices=["api-scraper", "browser-scraper", "manual"], 
                              default="manual", help="Source of the data")
+    mixed_parser.add_argument("--allow-old-data", action="store_true", help="Allow processing of historical data")
     
     # Real-time processing command
     realtime_parser = subparsers.add_parser("realtime", help="Process simulated real-time data")
@@ -179,17 +182,17 @@ def main():
         setup_database()
     
     elif args.command == "quotes":
-        ingestor = DataIngestor()
+        ingestor = DataIngestor(allow_old_data=args.allow_old_data)
         process_quotes_file(ingestor, args.file, args.source)
         ingestor.close()
     
     elif args.command == "indices":
-        ingestor = DataIngestor()
+        ingestor = DataIngestor(allow_old_data=args.allow_old_data)
         process_indices_file(ingestor, args.file, args.source)
         ingestor.close()
     
     elif args.command == "mixed":
-        ingestor = DataIngestor()
+        ingestor = DataIngestor(allow_old_data=args.allow_old_data)
         process_mixed_file(ingestor, args.file, args.source)
         ingestor.close()
     

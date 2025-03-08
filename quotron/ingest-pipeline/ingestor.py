@@ -10,7 +10,23 @@ import json
 import uuid
 from datetime import datetime
 import pandas as pd
+import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
+
+def convert_numpy_types(value):
+    """Convert NumPy types to Python native types"""
+    if isinstance(value, np.integer):
+        return int(value)
+    elif isinstance(value, np.floating):
+        return float(value)
+    elif isinstance(value, np.ndarray):
+        return value.tolist()
+    elif isinstance(value, dict):
+        return {k: convert_numpy_types(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [convert_numpy_types(i) for i in value]
+    else:
+        return value
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,12 +54,12 @@ class DataIngestor:
     5. Handling errors and retries
     """
     
-    def __init__(self):
+    def __init__(self, allow_old_data=False):
         """Initialize the data ingestor"""
-        self.validator = DataValidator()
+        self.validator = DataValidator(allow_old_data=allow_old_data)
         self.enricher = DataEnricher()
         self.db = Database.get_instance()
-        logger.info("Initialized data ingestor")
+        logger.info("Initialized data ingestor with allow_old_data={}".format(allow_old_data))
     
     def process_stock_quotes(self, quotes_data: List[Dict[str, Any]], source: DataSource) -> Tuple[str, List[str]]:
         """
@@ -92,6 +108,8 @@ class DataIngestor:
                 batch = MarketBatch(quotes=valid_quotes, indices=[], batch_id=batch_id)
                 enriched_batch = self.enricher.enrich_batch(batch)
                 stats = self.enricher.compute_statistics(enriched_batch)
+                # Convert numpy types to Python native types
+                stats = convert_numpy_types(stats)
                 
                 stats_record = {
                     "batch_id": batch_id,
@@ -239,6 +257,8 @@ class DataIngestor:
                 batch = MarketBatch(quotes=valid_quotes, indices=valid_indices, batch_id=batch_id)
                 enriched_batch = self.enricher.enrich_batch(batch)
                 stats = self.enricher.compute_statistics(enriched_batch)
+                # Convert numpy types to Python native types
+                stats = convert_numpy_types(stats)
                 
                 stats_record = {
                     "batch_id": batch_id,
