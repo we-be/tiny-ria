@@ -35,6 +35,9 @@ func (j *StockQuoteJob) Execute(ctx context.Context, params map[string]string) e
 		return fmt.Errorf("no symbols specified")
 	}
 
+	// Track errors for reporting
+	var errors []string
+	
 	// Split symbols and process each one
 	symbolList := strings.Split(symbols, ",")
 	for _, symbol := range symbolList {
@@ -45,13 +48,33 @@ func (j *StockQuoteJob) Execute(ctx context.Context, params map[string]string) e
 
 		log.Printf("Fetching stock quote for %s", symbol)
 		if err := j.fetchQuote(ctx, symbol); err != nil {
-			log.Printf("Error fetching quote for %s: %v", symbol, err)
-			continue // Continue with next symbol even if this one fails
+			errMsg := fmt.Sprintf("Error fetching quote for %s: %v", symbol, err)
+			log.Print(errMsg)
+			errors = append(errors, errMsg)
+			
+			// Check if we should abort (API key issues, rate limits, etc.)
+			if strings.Contains(err.Error(), "API key") || 
+			   strings.Contains(err.Error(), "rate limit") {
+				return fmt.Errorf("stopping due to API issues: %w", err)
+			}
+			
+			continue // Continue with next symbol for other errors
 		}
 	}
 
-	// Update last run time
+	// Update last run time regardless of individual errors
 	j.SetLastRun(time.Now())
+	
+	// If any symbols failed, report it but don't fail the whole job
+	if len(errors) > 0 {
+		log.Printf("Warning: %d/%d stock quotes had errors", len(errors), len(symbolList))
+		
+		// If more than 5 requests failed, it might be a rate limit issue
+		if len(errors) > 5 {
+			log.Printf("Note: Free Alpha Vantage API has a limit of 25 requests per day. Consider upgrading API key.")
+		}
+	}
+	
 	return nil
 }
 

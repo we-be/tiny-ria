@@ -82,6 +82,19 @@ The scheduler uses a JSON configuration file with the following structure:
 
 - `ALPHA_VANTAGE_API_KEY`: API key for Alpha Vantage (overrides config file)
 
+### API Limitations
+
+The free Alpha Vantage API has the following limitations:
+- 25 API requests per day
+- Limited access to certain data types (some market indices may not be available)
+- 5 API calls per minute
+
+For production use, consider upgrading to a paid plan:
+- Premium: Starting at $49/month for 150 API requests per minute
+- Enterprise: Custom pricing for unlimited API requests
+
+The scheduler handles API errors gracefully and will continue attempting to fetch available data.
+
 ## Cron Expression Format
 
 The scheduler uses the standard cron format:

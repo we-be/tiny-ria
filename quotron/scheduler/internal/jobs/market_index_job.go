@@ -35,6 +35,9 @@ func (j *MarketIndexJob) Execute(ctx context.Context, params map[string]string) 
 		return fmt.Errorf("no indices specified")
 	}
 
+	// Track errors for reporting
+	var errors []string
+	
 	// Split indices and process each one
 	indexList := strings.Split(indices, ",")
 	for _, index := range indexList {
@@ -45,13 +48,33 @@ func (j *MarketIndexJob) Execute(ctx context.Context, params map[string]string) 
 
 		log.Printf("Fetching market data for %s", index)
 		if err := j.fetchMarketData(ctx, index); err != nil {
-			log.Printf("Error fetching market data for %s: %v", index, err)
-			continue // Continue with next index even if this one fails
+			errMsg := fmt.Sprintf("Error fetching market data for %s: %v", index, err)
+			log.Print(errMsg)
+			errors = append(errors, errMsg)
+			
+			// Check if we should abort (API key issues, rate limits, etc.)
+			if strings.Contains(err.Error(), "API key") || 
+			   strings.Contains(err.Error(), "rate limit") {
+				return fmt.Errorf("stopping due to API issues: %w", err)
+			}
+			
+			continue // Continue with next index for other errors
 		}
 	}
 
-	// Update last run time
+	// Update last run time regardless of individual errors
 	j.SetLastRun(time.Now())
+	
+	// If any indices failed, report it but don't fail the whole job
+	if len(errors) > 0 {
+		log.Printf("Warning: %d/%d market indices had errors", len(errors), len(indexList))
+		
+		// Note about Alpha Vantage limitations
+		if len(errors) == len(indexList) {
+			log.Printf("Note: Free Alpha Vantage API has limitations on market indices. Consider upgrading API key.")
+		}
+	}
+	
 	return nil
 }
 
