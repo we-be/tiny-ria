@@ -1,0 +1,69 @@
+name: API Scraper Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'quotron/api-scraper/**'
+      - 'quotron/tests/integration/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'quotron/api-scraper/**'
+      - 'quotron/tests/integration/**'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pydantic playwright
+
+    - name: Install Playwright browsers
+      run: |
+        python -m playwright install chromium
+
+    - name: Build API Scraper
+      run: |
+        cd quotron/api-scraper
+        go build -o api-scraper ./cmd/main
+
+    # Run with real API key - limited to main branch
+    - name: Test API Scraper with real API (main branch)
+      if: github.ref == 'refs/heads/main'
+      env:
+        ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+      run: |
+        cd quotron
+        python tests/integration/test_integration.py --api
+      
+    # Run with demo API key for PRs (to avoid API key exposure)
+    - name: Test API Scraper with demo API (PRs)
+      if: github.ref != 'refs/heads/main'
+      run: |
+        cd quotron
+        # Use demo key with limited test scope
+        export ALPHA_VANTAGE_API_KEY=demo
+        python tests/integration/test_integration.py --api
+
+    # Run other integration tests
+    - name: Run other integration tests
+      run: |
+        cd quotron
+        python tests/integration/test_integration.py --browser --auth --ingest --events
