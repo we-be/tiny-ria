@@ -44,6 +44,23 @@ Run with Yahoo Finance (no API key needed):
 ./api-scraper --yahoo --symbol AAPL
 ```
 
+### Database Integration
+
+The API scraper works with the Quotron storage pipeline:
+
+1. When run from the scheduler, data is automatically saved to JSON files
+2. The ingest pipeline processes these files to:
+   - Validate and clean the data
+   - Enrich it with additional information
+   - Store it in the PostgreSQL database
+   - Compute and store statistical information
+
+To manually process data files:
+```bash
+cd ../ingest-pipeline
+python cli.py mixed path/to/data.json --source api-scraper --allow-old-data
+```
+
 ### JSON Output
 
 For JSON output with any provider:

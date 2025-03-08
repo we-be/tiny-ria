@@ -135,7 +135,7 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 		return fmt.Errorf("failed to execute API scraper: %w, output: %s", err, output)
 	}
 
-	// Save the output to a file for analysis
+	// Save the output to a file for analysis and database
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -146,6 +146,15 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 			log.Printf("Warning: couldn't save output to %s: %v", filename, err)
 		} else {
 			log.Printf("Saved output to %s", filename)
+			
+			// Import to database using the ingest pipeline
+			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "quotes", filename, "--source", "api-scraper", "--allow-old-data")
+			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
+			if ingestErr != nil {
+				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
+			} else {
+				log.Printf("Imported data to database: %s", ingestOutput)
+			}
 		}
 	}
 
@@ -167,7 +176,7 @@ func (j *StockQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) erro
 		return fmt.Errorf("failed to execute API scraper with Yahoo Finance: %w, output: %s", err, output)
 	}
 
-	// Save the output to a file for analysis
+	// Save the output to a file for analysis and database
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -178,6 +187,15 @@ func (j *StockQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) erro
 			log.Printf("Warning: couldn't save output to %s: %v", filename, err)
 		} else {
 			log.Printf("Saved output to %s", filename)
+			
+			// Import to database using the ingest pipeline
+			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "quotes", filename, "--source", "api-scraper", "--allow-old-data")
+			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
+			if ingestErr != nil {
+				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
+			} else {
+				log.Printf("Imported data to database: %s", ingestOutput)
+			}
 		}
 	}
 

@@ -9,6 +9,8 @@ A Go-based scheduler for running API scraper jobs on a defined schedule.
 - Support for manual job execution
 - Automatic discovery of API scraper binary
 - Environment variable support for API keys
+- Integration with database storage pipeline
+- Automatic fallback to alternative data sources
 
 ## Jobs
 
@@ -17,7 +19,25 @@ The scheduler currently supports the following job types:
 - **Stock Quotes**: Fetches stock price data for configured symbols
 - **Market Indices**: Fetches market index data for configured indices
 
+## Database Integration
+
+The scheduler is integrated with the Quotron data pipeline:
+
+1. Stock and index data is saved to JSON files in the `data/` directory
+2. Files are automatically processed by the ingest pipeline
+3. Data is validated, enriched, and stored in the PostgreSQL database
+4. Statistical data is computed and stored with each batch
+
 ## Usage
+
+### Database Setup
+
+Before running the scheduler, ensure the database is set up:
+
+```bash
+cd quotron/ingest-pipeline
+python cli.py setup
+```
 
 ### Building
 
