@@ -76,7 +76,7 @@ func DefaultConfig() *SchedulerConfig {
 				Enabled:     true,
 				Description: "Fetch market indices data",
 				Parameters: map[string]string{
-					"indices": "^GSPC,^DJI,^IXIC",
+					"indices": "SPY,QQQ,DIA", // ETFs that track major indices, more likely to be available
 				},
 			},
 		},

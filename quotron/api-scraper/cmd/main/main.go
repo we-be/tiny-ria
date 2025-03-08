@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/tiny-ria/quotron/api-scraper/internal/models"
@@ -47,11 +48,29 @@ func main() {
 		}
 	}
 
+	// Use index parameter if provided, otherwise default
+	indexSymbol := *index
+	if indexSymbol == "" {
+		indexSymbol = "^GSPC" // Default to S&P 500
+	}
+	
 	// Fetch market data for an index
-	fmt.Printf("Fetching market data for %s...\n", *index)
-	marketData, err := apiClient.GetMarketData(ctx, *index)
+	fmt.Printf("Fetching market data for %s...\n", indexSymbol)
+	marketData, err := apiClient.GetMarketData(ctx, indexSymbol)
 	if err != nil {
-		log.Printf("Failed to get market data: %v", err)
+		// Check if the error contains information about API limits or timing
+		if strings.Contains(err.Error(), "API call frequency") ||
+		   strings.Contains(err.Error(), "Thank you for using Alpha Vantage") {
+			log.Printf("Alpha Vantage API limit reached: %v", err)
+		} else {
+			log.Printf("Failed to get market data: %v", err)
+		}
+		
+		// If we got a quote, don't exit with error even if market data failed
+		if quote != nil {
+			// Not a critical error if at least the stock quote worked
+			fmt.Println("Note: Market data may not be available with your current API key.")
+		}
 	} else {
 		if *outputJson {
 			marketJson, _ := json.MarshalIndent(marketData, "", "  ")
@@ -64,8 +83,8 @@ func main() {
 		}
 	}
 	
-	// If both operations failed, exit with error
-	if err != nil && quote == nil && marketData == nil {
+	// Only exit with error if both operations failed
+	if quote == nil && marketData == nil {
 		os.Exit(1)
 	}
 }

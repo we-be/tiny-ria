@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -40,10 +41,23 @@ func (j *StockQuoteJob) Execute(ctx context.Context, params map[string]string) e
 	
 	// Split symbols and process each one
 	symbolList := strings.Split(symbols, ",")
-	for _, symbol := range symbolList {
+	for i, symbol := range symbolList {
 		symbol = strings.TrimSpace(symbol)
 		if symbol == "" {
 			continue
+		}
+
+		// Add a delay between requests to avoid rate limiting
+		// Alpha Vantage free tier allows 5 requests per minute
+		if i > 0 {
+			// Wait 15 seconds between requests to avoid rate limiting
+			log.Printf("Waiting 15 seconds before next request (API rate limiting)...")
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(15 * time.Second):
+				// Continue after delay
+			}
 		}
 
 		log.Printf("Fetching stock quote for %s", symbol)
@@ -54,7 +68,8 @@ func (j *StockQuoteJob) Execute(ctx context.Context, params map[string]string) e
 			
 			// Check if we should abort (API key issues, rate limits, etc.)
 			if strings.Contains(err.Error(), "API key") || 
-			   strings.Contains(err.Error(), "rate limit") {
+			   strings.Contains(err.Error(), "rate limit") ||
+			   strings.Contains(err.Error(), "Thank you for using Alpha Vantage") {
 				return fmt.Errorf("stopping due to API issues: %w", err)
 			}
 			
@@ -90,6 +105,20 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to execute API scraper: %w, output: %s", err, output)
+	}
+
+	// Save the output to a file for analysis
+	outputDir := "data"
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		log.Printf("Warning: couldn't create data directory: %v", err)
+	} else {
+		timestamp := time.Now().Format("20060102-150405")
+		filename := fmt.Sprintf("%s/%s-%s.json", outputDir, symbol, timestamp)
+		if err := os.WriteFile(filename, output, 0644); err != nil {
+			log.Printf("Warning: couldn't save output to %s: %v", filename, err)
+		} else {
+			log.Printf("Saved output to %s", filename)
+		}
 	}
 
 	log.Printf("Successfully fetched quote for %s", symbol)

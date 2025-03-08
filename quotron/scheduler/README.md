@@ -71,7 +71,7 @@ The scheduler uses a JSON configuration file with the following structure:
       "enabled": true,
       "description": "Fetch market indices data",
       "parameters": {
-        "indices": "^GSPC,^DJI,^IXIC"
+        "indices": "SPY,QQQ,DIA"
       }
     }
   }
