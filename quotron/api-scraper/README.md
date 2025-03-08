@@ -1,37 +1,75 @@
 # API Scraper
 
-A Go-based client for fetching financial data from various APIs.
+A Go-based client for fetching financial data from various financial APIs.
 
-## Alpha Vantage Integration
+## Supported APIs
 
-The API scraper currently supports Alpha Vantage endpoints for:
+### Alpha Vantage Integration
+
+The API scraper supports Alpha Vantage endpoints for:
 - Stock price quotes
 - Market data (indices)
+
+**Note**: Alpha Vantage has rate limits:
+- Free tier: 5 requests/minute, 25 requests/day
+- Limited market data access
+
+### Yahoo Finance Integration
+
+The API scraper now supports Yahoo Finance as an alternative:
+- No API key required
+- Higher rate limits
+- Two modes:
+  - REST API (pure Go implementation)
+  - Python-based proxy (using yfinance package)
 
 ## Usage
 
 Build the binary:
 ```bash
-go build -o api-scraper ./cmd/main
+make build  # or: go build -o api-scraper ./cmd/main
 ```
 
-Run with an API key:
+### Alpha Vantage
+
+Run with an Alpha Vantage API key:
 ```bash
 ./api-scraper --api-key YOUR_API_KEY --symbol AAPL
 ```
 
-For JSON output:
+### Yahoo Finance
+
+Run with Yahoo Finance (no API key needed):
 ```bash
-./api-scraper --api-key YOUR_API_KEY --symbol AAPL --json
+./api-scraper --yahoo --symbol AAPL
+```
+
+### JSON Output
+
+For JSON output with any provider:
+```bash
+./api-scraper --yahoo --symbol AAPL --json
 ```
 
 ## Environment Variables
 
-You can also set the API key with an environment variable:
+You can set the Alpha Vantage API key with an environment variable:
 ```bash
 export ALPHA_VANTAGE_API_KEY=YOUR_API_KEY
 ./api-scraper --symbol AAPL
 ```
+
+## Python Proxy Setup
+
+The Yahoo Finance proxy requires Python 3 with yfinance:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r scripts/requirements.txt
+```
+
+The proxy server will automatically start and stop when using the `--yahoo` flag.
 
 ## Continuous Integration
 

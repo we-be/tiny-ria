@@ -13,18 +13,20 @@ import (
 // StockQuoteJob fetches stock quotes for specified symbols
 type StockQuoteJob struct {
 	BaseJob
-	apiKey     string
+	apiKey         string
 	apiScraperPath string
-	outputJSON bool
+	outputJSON     bool
+	fallbackEnabled bool  // Whether to use Yahoo Finance as fallback
 }
 
 // NewStockQuoteJob creates a new stock quote job
 func NewStockQuoteJob(apiKey, apiScraperPath string, outputJSON bool) *StockQuoteJob {
 	return &StockQuoteJob{
-		BaseJob:    NewBaseJob("stock_quotes", "Fetch stock quotes for tracked symbols"),
-		apiKey:     apiKey,
+		BaseJob:        NewBaseJob("stock_quotes", "Fetch stock quotes for tracked symbols"),
+		apiKey:         apiKey,
 		apiScraperPath: apiScraperPath,
-		outputJSON: outputJSON,
+		outputJSON:     outputJSON,
+		fallbackEnabled: true, // Enable Yahoo Finance fallback by default
 	}
 }
 
@@ -93,7 +95,7 @@ func (j *StockQuoteJob) Execute(ctx context.Context, params map[string]string) e
 	return nil
 }
 
-// fetchQuote fetches a stock quote for a single symbol
+// fetchQuote fetches a stock quote for a single symbol using Alpha Vantage
 func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 	// Prepare command to run the API scraper
 	args := []string{"--api-key", j.apiKey, "--symbol", symbol}
@@ -122,5 +124,37 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 	}
 
 	log.Printf("Successfully fetched quote for %s", symbol)
+	return nil
+}
+
+// fetchQuoteYahoo fetches a stock quote for a single symbol using Yahoo Finance
+func (j *StockQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) error {
+	// Prepare command to run the API scraper with Yahoo Finance
+	args := []string{"--yahoo", "--symbol", symbol}
+	if j.outputJSON {
+		args = append(args, "--json")
+	}
+
+	cmd := exec.CommandContext(ctx, j.apiScraperPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to execute API scraper with Yahoo Finance: %w, output: %s", err, output)
+	}
+
+	// Save the output to a file for analysis
+	outputDir := "data"
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		log.Printf("Warning: couldn't create data directory: %v", err)
+	} else {
+		timestamp := time.Now().Format("20060102-150405")
+		filename := fmt.Sprintf("%s/%s-yahoo-%s.json", outputDir, symbol, timestamp)
+		if err := os.WriteFile(filename, output, 0644); err != nil {
+			log.Printf("Warning: couldn't save output to %s: %v", filename, err)
+		} else {
+			log.Printf("Saved output to %s", filename)
+		}
+	}
+
+	log.Printf("Successfully fetched quote for %s using Yahoo Finance", symbol)
 	return nil
 }

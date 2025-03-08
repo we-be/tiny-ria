@@ -16,9 +16,14 @@ go.work
 
 # API scraper binary
 quotron/api-scraper/api-scraper
+quotron/api-scraper/main
 
 # Scheduler binary
 quotron/scheduler/scheduler
+quotron/scheduler/main
+
+# Collected data
+quotron/scheduler/data/
 
 # Python virtual environments
 venv/
