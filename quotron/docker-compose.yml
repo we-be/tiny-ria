@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # API Scraper
+  api-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-scraper
+    environment:
+      - FINANCE_API_KEY=${FINANCE_API_KEY}
+      - BASE_URL=${API_BASE_URL:-https://api.example.com/v1}
+    networks:
+      - quotron-network
+    depends_on:
+      - kafka
+
+  # Browser Scraper
+  browser-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: browser-scraper
+    environment:
+      - STOCK_SYMBOL=${STOCK_SYMBOL:-AAPL}
+    networks:
+      - quotron-network
+    depends_on:
+      - auth-engine
+
+  # Auth Engine
+  auth-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: auth-engine
+    ports:
+      - "8000:8000"
+    environment:
+      - AUTH_SECRET_KEY=${AUTH_SECRET_KEY:-dev_secret_key_replace_in_production}
+    networks:
+      - quotron-network
+
+  # Infrastructure Services
+  
+  # Kafka for event streaming
+  kafka:
+    image: bitnami/kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    networks:
+      - quotron-network
+
+  # PostgreSQL for structured data
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=quotron
+      - POSTGRES_PASSWORD=quotron
+      - POSTGRES_DB=quotron
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - quotron-network
+
+  # MinIO for blob storage
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=quotron
+      - MINIO_ROOT_PASSWORD=quotron123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - quotron-network
+
+networks:
+  quotron-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  minio-data:
