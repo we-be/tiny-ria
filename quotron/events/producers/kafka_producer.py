@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import Dict, Any, Optional
 
-from confluent_kafka import Producer
+from kafka import KafkaProducer as KProducer
 from pydantic import BaseModel
 
 from ..schemas.event_schema import Event
@@ -24,8 +24,6 @@ class KafkaConfig(BaseModel):
     batch_size: int = 16384
     linger_ms: int = 5
     buffer_memory: int = 33554432
-    key_serializer: str = "string"
-    value_serializer: str = "json"
 
 class KafkaProducer:
     """Producer for sending events to Kafka"""
@@ -33,15 +31,17 @@ class KafkaProducer:
     def __init__(self, config: KafkaConfig):
         """Initialize the Kafka producer with the given configuration"""
         self.config = config
-        self.producer = Producer({
-            'bootstrap.servers': config.bootstrap_servers,
-            'client.id': config.client_id,
-            'acks': config.acks,
-            'retries': config.retries,
-            'batch.size': config.batch_size,
-            'linger.ms': config.linger_ms,
-            'buffer.memory': config.buffer_memory,
-        })
+        self.producer = KProducer(
+            bootstrap_servers=config.bootstrap_servers,
+            client_id=config.client_id,
+            acks=config.acks,
+            retries=config.retries,
+            batch_size=config.batch_size,
+            linger_ms=config.linger_ms,
+            buffer_memory=config.buffer_memory,
+            value_serializer=lambda v: json.dumps(v, default=str).encode('utf-8'),
+            key_serializer=lambda k: k.encode('utf-8')
+        )
         logger.info(f"Initialized Kafka producer with bootstrap servers: {config.bootstrap_servers}")
     
     def send_event(self, topic: str, event: Event, key: Optional[str] = None) -> None:
@@ -56,32 +56,27 @@ class KafkaProducer:
         if key is None:
             key = str(uuid.uuid4())
         
-        # Convert event to JSON string
-        event_json = json.dumps(event.dict(), default=str)
+        # Convert event to dict
+        event_dict = event.dict()
         
-        # Define delivery callback
-        def delivery_callback(err, msg):
-            if err:
-                logger.error(f"Failed to deliver message: {err}")
-            else:
-                logger.debug(f"Message delivered to {msg.topic()} [{msg.partition()}]")
-        
-        # Produce the message
-        self.producer.produce(
+        # Send the message
+        future = self.producer.send(
             topic=topic,
             key=key,
-            value=event_json,
-            callback=delivery_callback
+            value=event_dict
         )
         
-        # Flush to ensure the message is sent
-        self.producer.flush(timeout=10)
-        
-        logger.info(f"Sent event of type {event.event_type} to topic {topic}")
+        try:
+            # Ensure the message is sent
+            record_metadata = future.get(timeout=10)
+            logger.debug(f"Message delivered to {record_metadata.topic} [{record_metadata.partition}]")
+            logger.info(f"Sent event of type {event.event_type} to topic {topic}")
+        except Exception as e:
+            logger.error(f"Failed to deliver message: {e}")
     
     def close(self) -> None:
         """Close the producer connection"""
-        self.producer.flush()
+        self.producer.close()
         logger.info("Kafka producer closed")
 
 # Example usage
