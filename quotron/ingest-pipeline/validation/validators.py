@@ -3,7 +3,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
-from ..schemas.finance_schema import StockQuote, MarketIndex, MarketBatch
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from schemas.finance_schema import StockQuote, MarketIndex, MarketBatch
 
 # Configure logging
 logging.basicConfig(
@@ -15,12 +18,18 @@ logger = logging.getLogger(__name__)
 class DataValidator:
     """Validator for financial data"""
     
-    def __init__(self):
+    def __init__(self, allow_old_data=False):
         """Initialize the validator with reasonable bounds for financial data"""
         self.price_max = 100000.0  # Max reasonable stock price
         self.price_min = 0.0001    # Min reasonable stock price
         self.volume_max = 10000000000  # Max reasonable volume (10B)
-        self.yesterday = datetime.utcnow() - timedelta(days=1)
+        # For testing purposes, we might want to allow older data
+        self.allow_old_data = allow_old_data
+        # If testing, use a date far in the past, else use yesterday
+        if allow_old_data:
+            self.yesterday = datetime(2000, 1, 1)
+        else:
+            self.yesterday = datetime.utcnow() - timedelta(days=1)
     
     def validate_stock_quote(self, data: Dict[str, Any]) -> Optional[StockQuote]:
         """
@@ -105,6 +114,18 @@ class DataValidator:
     
     def _is_timestamp_recent(self, timestamp: datetime) -> bool:
         """Check if a timestamp is recent (within the last day)"""
+        # Make both timestamps timezone-aware or both naive for comparison
+        if timestamp.tzinfo is not None and self.yesterday.tzinfo is None:
+            # If input is timezone-aware but yesterday is naive, make yesterday timezone-aware
+            from datetime import timezone
+            yesterday_aware = self.yesterday.replace(tzinfo=timezone.utc)
+            return timestamp >= yesterday_aware
+        elif timestamp.tzinfo is None and self.yesterday.tzinfo is not None:
+            # If input is naive but yesterday is timezone-aware, make input timezone-aware
+            from datetime import timezone
+            timestamp_aware = timestamp.replace(tzinfo=timezone.utc)
+            return timestamp_aware >= self.yesterday
+        # Both are either naive or aware
         return timestamp >= self.yesterday
 
 class DataEnricher:
