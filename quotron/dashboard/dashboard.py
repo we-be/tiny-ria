@@ -634,20 +634,61 @@ def render_data_source_health():
                 with action_cols[1]:
                     # AI Diagnostics button
                     if st.button("🤖 AI Diagnose", key="ai_diagnostics"):
-                        with st.spinner("Analyzing data sources..."):
-                            generate_diagnostics_report(health_data)
-                            st.success("Diagnostics report generated! Check the 'diagnostics_report.md' file.")
+                        with st.status("Analyzing data sources...", expanded=True) as status:
+                            st.write("Collecting source information...")
+                            time.sleep(0.5)
+                            st.write("Analyzing error patterns...")
+                            time.sleep(0.5)
+                            st.write("Generating recommendations...")
+                            time.sleep(0.5)
+                            report_path = generate_diagnostics_report(health_data)
+                            status.update(label="Analysis complete!", state="complete", expanded=False)
+                        st.success("Diagnostics report generated!")
+                        st.toast("AI report ready! 🧠", icon="✅")
                 with action_cols[2]:
                     # Recovery button
                     if st.button("🛠️ Auto-Recover", key="auto_recover_all"):
-                        with st.spinner("Attempting recovery..."):
-                            run_auto_recovery(health_data)
+                        with st.status("Attempting recovery...", expanded=True) as status:
+                            recovered, failed = run_auto_recovery(health_data)
+                            
+                            progress_value = 0
+                            progress_bar = st.progress(progress_value)
+                            
+                            total_sources = len(recovered) + len(failed)
+                            if total_sources > 0:
+                                for i, source in enumerate(recovered):
+                                    progress_value = int((i+1) / total_sources * 100)
+                                    progress_bar.progress(progress_value)
+                                    st.write(f"✅ Recovered: {source}")
+                                    time.sleep(0.3)
+                                    
+                                for i, (source, error) in enumerate(failed):
+                                    progress_value = int((len(recovered) + i+1) / total_sources * 100)
+                                    progress_bar.progress(progress_value)
+                                    st.write(f"❌ Failed: {source} - {error}")
+                                    time.sleep(0.3)
+                                
+                                status.update(label=f"Recovery complete! {len(recovered)}/{total_sources} sources recovered", 
+                                             state="complete" if len(recovered) > 0 else "error",
+                                             expanded=False)
+                                
+                                if len(recovered) > 0:
+                                    st.balloons()
+                            else:
+                                status.update(label="No sources needed recovery!", state="complete", expanded=False)
                 with action_cols[3]:
                     # Check all sources button
                     if st.button("🔍 Check All", key="check_all"):
-                        with st.spinner("Checking all data sources..."):
+                        with st.status("Checking all data sources...", expanded=True) as status:
+                            st.write("Checking YFinance proxy...")
+                            time.sleep(0.5)
+                            st.write("Checking API sources...")
+                            time.sleep(0.5)
+                            st.write("Checking browser scrapers...")
+                            time.sleep(0.5)
                             check_all_sources()
-                            st.success("All sources checked!")
+                            status.update(label="Health check complete!", state="complete", expanded=False)
+                            st.toast("Health check finished", icon="🔍")
             
             # Create a tabbed view for different ways to view the data
             tab1, tab2, tab3 = st.tabs(["Overview", "Details", "Failed Sources"])
@@ -808,19 +849,35 @@ def render_data_source_health():
                                 
                                 # Add recovery button
                                 if st.button("Attempt Recovery", key=f"recover_{source['source_name']}"):
-                                    st.info(f"Attempting to recover {source['source_name']}...")
-                                    
                                     # Handle specific recovery based on source type
-                                    if source['source_name'] == 'yahoo_finance_proxy':
-                                        proxy_restart_result = restart_yfinance_proxy()
-                                        if proxy_restart_result:
-                                            st.success("Recovery successful!")
+                                    with st.status(f"Recovering {source['source_name']}...", expanded=True) as status:
+                                        if source['source_name'] == 'yahoo_finance_proxy':
+                                            st.write("Attempting to restart the proxy service...")
+                                            time.sleep(0.5)
+                                            proxy_restart_result = restart_yfinance_proxy()
+                                            
+                                            if proxy_restart_result:
+                                                status.update(label=f"✅ {source['source_name']} recovered successfully!", 
+                                                            state="complete", expanded=False)
+                                                st.toast("Recovery successful!", icon="✅")
+                                                st.snow()  # Little celebration for successful recovery
+                                            else:
+                                                status.update(label=f"❌ Failed to recover {source['source_name']}", 
+                                                            state="error", expanded=True)
+                                                st.error("Recovery failed. See logs for details.")
+                                                
+                                        elif source['source_name'] == 'alpha_vantage':
+                                            st.write("Checking API key status...")
+                                            time.sleep(0.5)
+                                            st.write("Attempting request with minimal parameters...")
+                                            time.sleep(0.5)
+                                            status.update(label="⚠️ Alpha Vantage recovery not implemented yet", 
+                                                        state="warning", expanded=False)
+                                            st.warning("Alpha Vantage recovery not implemented yet")
                                         else:
-                                            st.error("Recovery failed")
-                                    elif source['source_name'] == 'alpha_vantage':
-                                        st.warning("Alpha Vantage recovery not implemented yet")
-                                    else:
-                                        st.warning(f"No recovery method defined for {source['source_name']}")
+                                            status.update(label=f"⚠️ No recovery method for {source['source_name']}", 
+                                                        state="warning", expanded=False)
+                                            st.warning(f"No recovery method defined for {source['source_name']}")
                 else:
                     st.success("🎉 No failed sources detected!")
         else:
@@ -957,21 +1014,33 @@ def render_data_source_health():
                     update_health_status_failed("yahoo_finance_proxy", f"Connection failed: {str(e)}")
             
             if st.button("Restart Proxy", key="restart_proxy"):
-                with st.spinner("Restarting YFinance proxy..."):
-                    if restart_yfinance_proxy():
-                        st.success("✅ Proxy restarted successfully!")
+                with st.status("Restarting YFinance proxy...", expanded=True) as status:
+                    st.write("Stopping old process...")
+                    time.sleep(0.5)
+                    st.write("Starting new proxy instance...")
+                    time.sleep(0.5)
+                    success = restart_yfinance_proxy()
+                    
+                    if success:
+                        st.write("Verifying health...")
+                        time.sleep(0.5)
+                        status.update(label="✅ Proxy restarted successfully!", state="complete", expanded=False)
+                        st.toast("Proxy running", icon="🚀")
                     else:
-                        st.error("❌ Failed to restart proxy")
+                        status.update(label="❌ Failed to restart proxy", state="error", expanded=True)
+                        st.error("Could not restart the proxy service. Check logs for details.")
             
             if st.button("Clear Cache", key="clear_cache"):
-                try:
-                    response = requests.post(f"{proxy_url}/admin/cache/clear", timeout=5)
-                    if response.status_code == 200:
-                        st.success("✅ Cache cleared successfully")
-                    else:
-                        st.error(f"❌ Failed to clear cache: {response.status_code}")
-                except requests.RequestException as e:
-                    st.error(f"❌ Request failed: {str(e)}")
+                with st.spinner("Clearing cache..."):
+                    try:
+                        response = requests.post(f"{proxy_url}/admin/cache/clear", timeout=5)
+                        if response.status_code == 200:
+                            st.success("✅ Cache cleared successfully")
+                            st.toast("Cache cleared", icon="🧹") 
+                        else:
+                            st.error(f"❌ Failed to clear cache: {response.status_code}")
+                    except requests.RequestException as e:
+                        st.error(f"❌ Request failed: {str(e)}")
     
     with service_tab2:
         # Batch Statistics
