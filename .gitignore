@@ -56,4 +56,4 @@ wheels/
 *.egg
 
 # Jupyter Notebook
-.ipynb_checkpoints
+.ipynb_checkpointsquotron/scheduler/scheduler-config.json
