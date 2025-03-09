@@ -217,11 +217,12 @@ def get_batch_statistics():
     
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT b.id, b.source, b.created_at, 
-                   bs.record_count, bs.error_count, 
-                   bs.processing_time_ms
+            SELECT b.id, b.source, b.created_at, b.status,
+                   b.quote_count, b.index_count,
+                   bs.positive_change_count, bs.negative_change_count, 
+                   bs.mean_price, bs.mean_change_percent
             FROM data_batches b
-            JOIN batch_statistics bs ON b.id = bs.batch_id
+            LEFT JOIN batch_statistics bs ON b.id = bs.batch_id
             ORDER BY b.created_at DESC
             LIMIT 10
         """)
