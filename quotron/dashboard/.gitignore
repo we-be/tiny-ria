@@ -1,0 +1,17 @@
+# Environment files
+.env
+.env.local
+
+# Virtual environment
+venv/
+__pycache__/
+
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
