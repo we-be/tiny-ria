@@ -42,60 +42,21 @@ def get_db_connection():
 
 # Scheduler control
 SCHEDULER_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scheduler.log")
-SCHEDULER_HEARTBEAT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scheduler_heartbeat")
-
-def create_heartbeat_file():
-    """Create the heartbeat file with current timestamp."""
-    with open(SCHEDULER_HEARTBEAT_FILE, 'w') as f:
-        f.write(datetime.now().isoformat())
-
-def check_heartbeat():
-    """Check if heartbeat file exists and is recent."""
-    if not os.path.exists(SCHEDULER_HEARTBEAT_FILE):
-        return False
-    
-    try:
-        with open(SCHEDULER_HEARTBEAT_FILE, 'r') as f:
-            heartbeat_time = datetime.fromisoformat(f.read().strip())
-        
-        # Heartbeat is valid if it's less than 60 seconds old
-        return (datetime.now() - heartbeat_time).total_seconds() < 60
-    except Exception:
-        return False
 
 def get_scheduler_status():
-    """Check if the scheduler is running."""
-    # Check for running process
+    """Check if the scheduler is running.
+    
+    This is a simplified, reliable implementation that just checks for the actual running Go process.
+    """
     try:
+        # Look specifically for the Go scheduler process, not our wrapper script
         result = subprocess.run(
-            "ps aux | grep -E '[g]o run cmd/scheduler/main.go|/run_scheduler.sh'", 
+            "ps aux | grep '[g]o run cmd/scheduler/main.go'", 
             shell=True, 
             capture_output=True, 
             text=True
         )
-        process_running = len(result.stdout.strip()) > 0
-        
-        if process_running:
-            # First priority: Process is running. Assume that heartbeat may catch up.
-            # This helps when the scheduler just started but heartbeat isn't created yet
-            return True
-            
-        # If no process is running, check if heartbeat is still active (very recent)
-        # This might happen if the process crashed but heartbeat file is still recent
-        if os.path.exists(SCHEDULER_HEARTBEAT_FILE):
-            try:
-                with open(SCHEDULER_HEARTBEAT_FILE, 'r') as f:
-                    heartbeat_time = datetime.fromisoformat(f.read().strip())
-                
-                # Only consider heartbeat valid if it's extremely recent (within 10 seconds)
-                heartbeat_age = (datetime.now() - heartbeat_time).total_seconds()
-                if heartbeat_age < 10:
-                    log_message(f"Process not found but heartbeat is very recent ({heartbeat_age:.1f}s). Assuming still running.")
-                    return True
-            except Exception:
-                pass
-                
-        return False
+        return len(result.stdout.strip()) > 0
     except Exception as e:
         log_message(f"Error checking scheduler status: {e}")
         return False
@@ -139,75 +100,62 @@ def get_scheduler_logs(lines=50):
         return [f"Error reading logs: {e}"]
 
 def start_scheduler():
-    """Start the scheduler process."""
+    """Start the scheduler process directly, with environment variables from .env."""
     try:
         # Create logs directory if it doesn't exist
         logs_dir = os.path.dirname(SCHEDULER_LOG_FILE)
         os.makedirs(logs_dir, exist_ok=True)
         
-        # Create a script to run the scheduler with heartbeat
-        heartbeat_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_scheduler.sh")
-        with open(heartbeat_script, 'w') as f:
-            f.write(f"""#!/bin/bash
-cd /home/hunter/Desktop/tiny-ria/quotron/scheduler
-
-# Load environment variables from .env file
-if [ -f "/home/hunter/Desktop/tiny-ria/quotron/.env" ]; then
-    echo "Loading environment variables from .env file" >> {SCHEDULER_LOG_FILE}
-    export $(grep -v '^#' /home/hunter/Desktop/tiny-ria/quotron/.env | xargs)
-    # Check if API key is loaded but don't log the key itself
-    if [ ! -z "$ALPHA_VANTAGE_API_KEY" ]; then
-        echo "Alpha Vantage API key loaded successfully" >> {SCHEDULER_LOG_FILE}
-    else
-        echo "WARNING: Alpha Vantage API key not found in .env file" >> {SCHEDULER_LOG_FILE}
-    fi
-else
-    echo "No .env file found" >> {SCHEDULER_LOG_FILE}
-fi
-
-# Start the main scheduler 
-# Mask API key in logs
-echo "Starting scheduler with Alpha Vantage API configured" >> {SCHEDULER_LOG_FILE}
-# Find the API scraper binary or use the source code directly
-API_SCRAPER_PATH="/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
-go run cmd/scheduler/main.go -api-scraper=$API_SCRAPER_PATH >> {SCHEDULER_LOG_FILE} 2>&1 &
-SCHEDULER_PID=$!
-
-# Create initial heartbeat
-echo $(date -Iseconds) > {SCHEDULER_HEARTBEAT_FILE}
-
-# Start the heartbeat loop in background to prevent blocking
-(
-  while kill -0 $SCHEDULER_PID 2>/dev/null; do
-    echo $(date -Iseconds) > {SCHEDULER_HEARTBEAT_FILE}
-    sleep 5
-  done
-  
-  # Clean up heartbeat file when scheduler stops
-  if [ -f "{SCHEDULER_HEARTBEAT_FILE}" ]; then
-    echo "Scheduler stopped, removing heartbeat file" >> {SCHEDULER_LOG_FILE}
-    rm {SCHEDULER_HEARTBEAT_FILE}
-  fi
-) &
-
-# Wait for the scheduler process to complete
-wait $SCHEDULER_PID
-""")
+        # Build the environment with API key from .env
+        env = os.environ.copy()
+        env_file = "/home/hunter/Desktop/tiny-ria/quotron/.env"
+        if os.path.exists(env_file):
+            log_message("Loading environment variables from .env file")
+            with open(env_file, 'r') as f:
+                for line in f:
+                    if line.strip() and not line.startswith('#'):
+                        key, value = line.strip().split('=', 1)
+                        env[key] = value
+                        
+            # Log without revealing key
+            if "ALPHA_VANTAGE_API_KEY" in env:
+                log_message("Alpha Vantage API key loaded successfully")
+            else:
+                log_message("WARNING: Alpha Vantage API key not found in .env file")
         
-        # Make the script executable
-        os.chmod(heartbeat_script, 0o755)
+        # Start the scheduler directly
+        log_message("Starting scheduler")
         
-        # Start the script
-        subprocess.Popen(
-            heartbeat_script,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True
-        )
+        # Get the API scraper path
+        api_scraper_path = "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
         
-        log_message("Scheduler started")
-        return True
+        # Build the command
+        cmd = [
+            "go", "run", "cmd/scheduler/main.go",
+            "-api-scraper=" + api_scraper_path
+        ]
+        
+        # Start the process with redirected output
+        with open(SCHEDULER_LOG_FILE, 'a') as log_file:
+            process = subprocess.Popen(
+                cmd,
+                cwd="/home/hunter/Desktop/tiny-ria/quotron/scheduler",
+                env=env,
+                stdout=log_file,
+                stderr=log_file,
+                start_new_session=True
+            )
+        
+        # Wait a moment to ensure process starts
+        time.sleep(1)
+        
+        # Verify the process started
+        if process.poll() is None:  # None means still running
+            log_message("Scheduler started successfully with PID: " + str(process.pid))
+            return True
+        else:
+            log_message(f"Scheduler failed to start, exit code: {process.poll()}")
+            return False
     except Exception as e:
         log_message(f"Error starting scheduler: {e}")
         return False
@@ -215,20 +163,32 @@ wait $SCHEDULER_PID
 def stop_scheduler():
     """Stop the scheduler process."""
     try:
-        # Kill both the scheduler and the heartbeat script
-        subprocess.run(
-            "pkill -f 'go run cmd/scheduler/main.go'", 
+        # Get the PIDs of any running scheduler processes
+        result = subprocess.run(
+            "ps aux | grep '[g]o run cmd/scheduler/main.go' | awk '{print $2}'", 
             shell=True, 
             capture_output=True, 
             text=True
         )
         
-        # Remove heartbeat file
-        if os.path.exists(SCHEDULER_HEARTBEAT_FILE):
-            os.remove(SCHEDULER_HEARTBEAT_FILE)
-        
-        log_message("Scheduler stopped")
-        return True
+        pids = result.stdout.strip().split('\n')
+        if pids and pids[0]:
+            log_message(f"Found scheduler processes: {', '.join(pids)}")
+            
+            # Kill each process
+            for pid in pids:
+                if pid:
+                    try:
+                        subprocess.run(f"kill -9 {pid}", shell=True, check=True)
+                        log_message(f"Killed process {pid}")
+                    except subprocess.CalledProcessError as e:
+                        log_message(f"Failed to kill process {pid}: {e}")
+            
+            log_message("Scheduler stopped")
+            return True
+        else:
+            log_message("No scheduler processes found to stop")
+            return False
     except Exception as e:
         log_message(f"Error stopping scheduler: {e}")
         return False
@@ -238,23 +198,32 @@ def run_job(job_name):
     try:
         log_message(f"Running job: {job_name}")
         
-        # Create a command that loads environment variables from .env
-        cmd = f"""
-        cd /home/hunter/Desktop/tiny-ria/quotron/scheduler
-        if [ -f "/home/hunter/Desktop/tiny-ria/quotron/.env" ]; then
-            export $(grep -v '^#' /home/hunter/Desktop/tiny-ria/quotron/.env | xargs)
-        fi
+        # Build the environment with API key from .env
+        env = os.environ.copy()
+        env_file = "/home/hunter/Desktop/tiny-ria/quotron/.env"
+        if os.path.exists(env_file):
+            with open(env_file, 'r') as f:
+                for line in f:
+                    if line.strip() and not line.startswith('#'):
+                        key, value = line.strip().split('=', 1)
+                        env[key] = value
         
-        # Find the API scraper binary location
-        API_SCRAPER_PATH="/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
-        go run cmd/scheduler/main.go -api-scraper=$API_SCRAPER_PATH -run-job={job_name}
-        """
+        # Get the API scraper path
+        api_scraper_path = "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
+        
+        # Build the command
+        cmd = [
+            "go", "run", "cmd/scheduler/main.go",
+            "-api-scraper=" + api_scraper_path,
+            "-run-job=" + job_name
+        ]
         
         # Run the job and capture output
         result = subprocess.run(
-            cmd, 
-            shell=True, 
-            capture_output=True, 
+            cmd,
+            cwd="/home/hunter/Desktop/tiny-ria/quotron/scheduler",
+            env=env,
+            capture_output=True,
             text=True
         )
         
@@ -419,18 +388,9 @@ def render_scheduler_controls():
     with col1:
         st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
         
-        # Add last heartbeat info if file exists
-        if os.path.exists(SCHEDULER_HEARTBEAT_FILE):
-            try:
-                with open(SCHEDULER_HEARTBEAT_FILE, 'r') as f:
-                    heartbeat_time = datetime.fromisoformat(f.read().strip())
-                time_diff = datetime.now() - heartbeat_time
-                if time_diff.total_seconds() < 60:
-                    st.markdown(f"**Last heartbeat:** <span style='color:green'>{time_diff.total_seconds():.1f} seconds ago</span>", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"**Last heartbeat:** <span style='color:red'>{time_diff.total_seconds():.1f} seconds ago</span>", unsafe_allow_html=True)
-            except Exception:
-                st.markdown("**Last heartbeat:** <span style='color:red'>Unable to read</span>", unsafe_allow_html=True)
+        # Show last update time
+        current_time = datetime.now().strftime("%H:%M:%S")
+        st.markdown(f"**Last checked:** {current_time}")
     
     with col2:
         if scheduler_running:
@@ -466,37 +426,21 @@ def render_scheduler_controls():
                 time.sleep(1)
                 st.rerun()  # Refresh to show new logs
                 
-    # Scheduler logs section with auto-refresh
+    # Scheduler logs section with manual refresh
     st.divider()
-    log_section = st.container()
     
-    with log_section:
-        logs_header_col, refresh_col = st.columns([3, 1])
-        with logs_header_col:
-            st.subheader("Scheduler Logs")
-        with refresh_col:
-            # Add auto-refresh toggle
-            auto_refresh = st.checkbox("Auto-refresh", value=scheduler_running, key="auto_refresh_logs")
-            
-            if auto_refresh:
-                # Use a st.empty() to place the refresh time text
-                refresh_text = st.empty()
-                current_time = datetime.now()
-                refresh_text.text(f"Auto-refreshing... (Last: {current_time.strftime('%H:%M:%S')})")
-                
-                # Set up auto-refresh using Streamlit's built-in mechanism
-                if scheduler_running:  # Only auto-refresh if scheduler is running
-                    time.sleep(0.5)  # Add a small delay to avoid flicker
-                    st.rerun()
-            else:
-                # Manual refresh button
-                if st.button("Refresh", key="refresh_logs"):
-                    st.rerun()
-        
-        # Display logs in a scrollable area with fixed height
-        logs = get_scheduler_logs(30)  # Get last 30 log entries
-        log_text = "".join(logs)
-        st.code(log_text, language="bash")
+    # Simple header with refresh button
+    log_col1, log_col2 = st.columns([3, 1])
+    with log_col1:
+        st.subheader("Scheduler Logs")
+    with log_col2:
+        if st.button("Refresh Logs", key="refresh_logs"):
+            st.rerun()
+    
+    # Display logs in a scrollable area
+    logs = get_scheduler_logs(30)  # Get last 30 log entries
+    log_text = "".join(logs)
+    st.code(log_text, language="bash")
 
 def render_market_overview():
     """Render the market overview section."""
