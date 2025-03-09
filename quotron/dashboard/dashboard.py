@@ -502,7 +502,7 @@ def render_market_overview():
                 return ''
         
         st.dataframe(
-            stocks_formatted.style.applymap(color_change, subset=['change', 'change_percent']),
+            stocks_formatted.style.map(color_change, subset=['change', 'change_percent']),
             use_container_width=True
         )
     else:
