@@ -119,8 +119,19 @@ def start_scheduler():
         with open(heartbeat_script, 'w') as f:
             f.write(f"""#!/bin/bash
 cd /home/hunter/Desktop/tiny-ria/quotron/scheduler
+
+# Load environment variables from .env file
+if [ -f "/home/hunter/Desktop/tiny-ria/quotron/.env" ]; then
+    echo "Loading .env file" >> {SCHEDULER_LOG_FILE}
+    export $(grep -v '^#' /home/hunter/Desktop/tiny-ria/quotron/.env | xargs)
+    echo "Loaded API key: $ALPHA_VANTAGE_API_KEY" >> {SCHEDULER_LOG_FILE}
+else
+    echo "No .env file found" >> {SCHEDULER_LOG_FILE}
+fi
+
 # Start the main scheduler
-go run cmd/scheduler/main.go > {SCHEDULER_LOG_FILE} 2>&1 &
+echo "Starting scheduler with API key: $ALPHA_VANTAGE_API_KEY" >> {SCHEDULER_LOG_FILE}
+go run cmd/scheduler/main.go >> {SCHEDULER_LOG_FILE} 2>&1 &
 SCHEDULER_PID=$!
 
 # Start the heartbeat loop
@@ -174,9 +185,18 @@ def run_job(job_name):
     try:
         log_message(f"Running job: {job_name}")
         
+        # Create a command that loads environment variables from .env
+        cmd = f"""
+        cd /home/hunter/Desktop/tiny-ria/quotron/scheduler
+        if [ -f "/home/hunter/Desktop/tiny-ria/quotron/.env" ]; then
+            export $(grep -v '^#' /home/hunter/Desktop/tiny-ria/quotron/.env | xargs)
+        fi
+        go run cmd/scheduler/main.go -run-job={job_name}
+        """
+        
         # Run the job and capture output
         result = subprocess.run(
-            f"cd /home/hunter/Desktop/tiny-ria/quotron/scheduler && go run cmd/scheduler/main.go -run-job={job_name}", 
+            cmd, 
             shell=True, 
             capture_output=True, 
             text=True
