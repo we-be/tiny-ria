@@ -22,6 +22,10 @@ quotron/api-scraper/main
 quotron/scheduler/scheduler
 quotron/scheduler/main
 
+# ETL binary and benchmarks
+quotron/etl/etlcli
+quotron/etl/simple_benchmark
+
 # Collected data
 quotron/scheduler/data/
 
