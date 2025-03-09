@@ -377,7 +377,7 @@ def get_data_source_health():
                 WITH source_mapping AS (
                     SELECT 
                         CASE 
-                            WHEN source LIKE '%yfinance%' OR source LIKE '%yahoo%' THEN 'yahoo_finance_proxy'
+                            WHEN source::text LIKE '%yfinance%' OR source::text LIKE '%yahoo%' THEN 'yahoo_finance_proxy'
                             WHEN source = 'api-scraper' THEN 'alpha_vantage'
                             ELSE 'other'
                         END as source_name,
