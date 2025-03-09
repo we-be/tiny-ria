@@ -343,25 +343,86 @@ def get_sector_allocations(model_id):
     return result
 
 def get_data_source_health():
-    """Get health status of data sources."""
+    """Get detailed health status of all data sources."""
     conn = get_db_connection()
     
+    # Get dedicated health status from the data_source_health table
+    detailed_health = None
+    source_data = None
+    
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        # Check the latest data from each source
+        try:
+            # First try to get the detailed health data if it exists
+            cur.execute("""
+                SELECT 
+                    source_type, 
+                    source_name,
+                    source_detail,
+                    status,
+                    last_check,
+                    last_success,
+                    error_count,
+                    error_message,
+                    response_time_ms,
+                    NOW() - last_success as age,
+                    metadata
+                FROM data_source_health
+                ORDER BY source_type, source_name
+            """)
+            detailed_health = pd.DataFrame(cur.fetchall()) if cur.rowcount > 0 else None
+        except Exception as e:
+            # This might fail if the table doesn't exist yet
+            st.error(f"Error fetching detailed health data: {e}")
+            pass
+            
+        # Always get the aggregated data from stock_quotes as a fallback
         cur.execute("""
-            SELECT source, 
-                   MAX(timestamp) as last_update,
-                   COUNT(*) as record_count,
-                   NOW() - MAX(timestamp) as age
+            SELECT 
+                source, 
+                MAX(timestamp) as last_update,
+                COUNT(*) as record_count,
+                NOW() - MAX(timestamp) as age
             FROM stock_quotes
             GROUP BY source
             ORDER BY last_update DESC
         """)
-        data = cur.fetchall()
-        result = pd.DataFrame(data) if data else pd.DataFrame()
+        source_data = pd.DataFrame(cur.fetchall()) if cur.rowcount > 0 else pd.DataFrame()
     
     conn.close()
-    return result
+    
+    # If we have detailed health data, enrich it with record counts from source_data
+    if detailed_health is not None and not detailed_health.empty:
+        if not source_data.empty:
+            # Map source_type and source_name to original source for joining
+            source_map = {
+                ('api-scraper', 'alpha_vantage'): 'api-scraper',
+                ('api-scraper', 'yahoo_finance'): 'api-scraper',
+                ('api-scraper', 'yahoo_finance_rest'): 'api-scraper',
+                ('api-scraper', 'yahoo_finance_proxy'): 'api-scraper',
+                ('browser-scraper', 'slickcharts'): 'browser-scraper',
+                ('browser-scraper', 'other'): 'browser-scraper'
+            }
+            
+            # Add mapped source column for joining
+            detailed_health['mapped_source'] = detailed_health.apply(
+                lambda row: source_map.get((row['source_type'], row['source_name']), row['source_type']), 
+                axis=1
+            )
+            
+            # Merge record counts from source_data
+            detailed_health = detailed_health.merge(
+                source_data[['source', 'record_count']], 
+                left_on='mapped_source', 
+                right_on='source', 
+                how='left'
+            )
+            
+            # Clean up
+            detailed_health.drop(['source', 'mapped_source'], axis=1, inplace=True)
+        return detailed_health
+    else:
+        # Fallback to original source data
+        return source_data
 
 def get_batch_statistics():
     """Get statistics for data batches."""
@@ -513,21 +574,188 @@ def render_data_source_health():
     st.subheader("Data Source Health")
     
     health_data = get_data_source_health()
+    
     if not health_data.empty:
-        for _, source in health_data.iterrows():
-            col1, col2, col3 = st.columns([2, 2, 3])
-            with col1:
-                st.markdown(f"**{source['source']}**")
-            with col2:
-                age_minutes = source['age'].total_seconds() / 60
-                status = "Healthy" if age_minutes < 60 else "Stale"
-                color = "green" if status == "Healthy" else "red"
-                st.markdown(f"Status: <span style='color:{color}'>{status}</span>", unsafe_allow_html=True)
-            with col3:
-                st.markdown(f"Last Update: {source['last_update'].strftime('%Y-%m-%d %H:%M:%S')}")
-                st.markdown(f"Records: {source['record_count']}")
+        # Check if we're using the new detailed health data or the fallback
+        if 'source_type' in health_data.columns:
+            # New detailed health data
+            api_sources = health_data[health_data['source_type'] == 'api-scraper']
+            web_sources = health_data[health_data['source_type'] == 'browser-scraper']
+            other_sources = health_data[~health_data['source_type'].isin(['api-scraper', 'browser-scraper'])]
+            
+            # Display API sources
+            if not api_sources.empty:
+                st.markdown("### API Sources")
+                for _, source in api_sources.iterrows():
+                    # Create a card-like UI for each source
+                    with st.expander(f"{source['source_detail']} ({source['source_name']})", expanded=True):
+                        col1, col2, col3 = st.columns([2, 2, 3])
+                        
+                        with col1:
+                            # Status with color coding
+                            status = source['status']
+                            if status == 'healthy':
+                                status_color = 'green'
+                            elif status in ['degraded', 'limited']:
+                                status_color = 'orange'
+                            elif status in ['error', 'failed']:
+                                status_color = 'red'
+                            else:
+                                status_color = 'gray'
+                                
+                            st.markdown(f"**Status:** <span style='color:{status_color}'>{status.upper()}</span>", unsafe_allow_html=True)
+                            
+                            # Last successful check
+                            if pd.notna(source.get('last_success')):
+                                last_success = source['last_success']
+                                age_minutes = source['age'].total_seconds() / 60 if pd.notna(source.get('age')) else 0
+                                age_text = f"{int(age_minutes)} minutes ago" if age_minutes < 60 else f"{int(age_minutes/60)} hours ago"
+                                st.markdown(f"**Last Success:** {last_success.strftime('%Y-%m-%d %H:%M:%S')}")
+                                st.markdown(f"**Age:** {age_text}")
+                            else:
+                                st.markdown("**Last Success:** Never")
+                                
+                        with col2:
+                            # Error information
+                            st.markdown(f"**Error Count:** {source.get('error_count', 0)}")
+                            
+                            # Response time if available
+                            if pd.notna(source.get('response_time_ms')):
+                                st.markdown(f"**Response Time:** {source['response_time_ms']} ms")
+                                
+                            # Record count if available    
+                            if pd.notna(source.get('record_count')):
+                                st.markdown(f"**Records:** {source['record_count']}")
+                                
+                        with col3:
+                            # Error message if present
+                            if pd.notna(source.get('error_message')) and source['error_message']:
+                                st.markdown("**Last Error:**")
+                                st.code(source['error_message'], language="bash")
+                            
+                            # Show metadata if available (as JSON)
+                            if pd.notna(source.get('metadata')) and source['metadata']:
+                                with st.expander("Metadata"):
+                                    st.json(source['metadata'])
+            
+            # Display Web Scraper sources
+            if not web_sources.empty:
+                st.markdown("### Web Scrapers")
+                for _, source in web_sources.iterrows():
+                    # Create a card-like UI for each source
+                    with st.expander(f"{source['source_detail']} ({source['source_name']})", expanded=True):
+                        col1, col2, col3 = st.columns([2, 2, 3])
+                        
+                        with col1:
+                            # Status with color coding
+                            status = source['status']
+                            if status == 'healthy':
+                                status_color = 'green'
+                            elif status in ['degraded', 'limited']:
+                                status_color = 'orange'
+                            elif status in ['error', 'failed']:
+                                status_color = 'red'
+                            else:
+                                status_color = 'gray'
+                                
+                            st.markdown(f"**Status:** <span style='color:{status_color}'>{status.upper()}</span>", unsafe_allow_html=True)
+                            
+                            # Last successful check
+                            if pd.notna(source.get('last_success')):
+                                last_success = source['last_success']
+                                age_minutes = source['age'].total_seconds() / 60 if pd.notna(source.get('age')) else 0
+                                age_text = f"{int(age_minutes)} minutes ago" if age_minutes < 60 else f"{int(age_minutes/60)} hours ago"
+                                st.markdown(f"**Last Success:** {last_success.strftime('%Y-%m-%d %H:%M:%S')}")
+                                st.markdown(f"**Age:** {age_text}")
+                            else:
+                                st.markdown("**Last Success:** Never")
+                                
+                        with col2:
+                            # Error information
+                            st.markdown(f"**Error Count:** {source.get('error_count', 0)}")
+                            
+                            # Response time if available
+                            if pd.notna(source.get('response_time_ms')):
+                                st.markdown(f"**Response Time:** {source['response_time_ms']} ms")
+                                
+                            # Record count if available    
+                            if pd.notna(source.get('record_count')):
+                                st.markdown(f"**Records:** {source['record_count']}")
+                                
+                        with col3:
+                            # Error message if present
+                            if pd.notna(source.get('error_message')) and source['error_message']:
+                                st.markdown("**Last Error:**")
+                                st.code(source['error_message'], language="bash")
+                            
+                            # Show metadata if available
+                            if pd.notna(source.get('metadata')) and source['metadata']:
+                                with st.expander("Metadata"):
+                                    st.json(source['metadata'])
+            
+            # Display Other sources if any
+            if not other_sources.empty:
+                st.markdown("### Other Sources")
+                for _, source in other_sources.iterrows():
+                    # Simplified view for other sources
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        st.markdown(f"**{source['source_name']}**")
+                    with col2:
+                        st.markdown(f"**Type:** {source['source_type']}")
+                        
+                        status = source['status']
+                        status_color = 'green' if status == 'healthy' else 'red' if status in ['error', 'failed'] else 'gray'
+                        st.markdown(f"**Status:** <span style='color:{status_color}'>{status.upper()}</span>", unsafe_allow_html=True)
+            
+        else:
+            # Legacy fallback view
+            st.warning("Using legacy data source health information. Please apply the database migration to enable detailed health tracking.")
+            for _, source in health_data.iterrows():
+                col1, col2, col3 = st.columns([2, 2, 3])
+                with col1:
+                    st.markdown(f"**{source['source']}**")
+                with col2:
+                    age_minutes = source['age'].total_seconds() / 60
+                    status = "Healthy" if age_minutes < 60 else "Stale"
+                    color = "green" if status == "Healthy" else "red"
+                    st.markdown(f"Status: <span style='color:{color}'>{status}</span>", unsafe_allow_html=True)
+                with col3:
+                    st.markdown(f"Last Update: {source['last_update'].strftime('%Y-%m-%d %H:%M:%S')}")
+                    st.markdown(f"Records: {source['record_count']}")
     else:
         st.info("No data source health information available.")
+    
+    # YFinance Proxy Health Check
+    st.divider()
+    st.subheader("YFinance Proxy Status")
+    
+    try:
+        proxy_url = os.environ.get("YFINANCE_PROXY_URL", "http://localhost:5000")
+        health_endpoint = f"{proxy_url}/health"
+        
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            if st.button("Check Proxy Health"):
+                try:
+                    start_time = time.time()
+                    response = requests.get(health_endpoint, timeout=5)
+                    response_time = (time.time() - start_time) * 1000  # ms
+                    
+                    if response.status_code == 200:
+                        status_data = response.json()
+                        st.success(f"✅ Proxy is running: {status_data.get('status', 'ok')}")
+                        st.markdown(f"Response time: {response_time:.1f} ms")
+                    else:
+                        st.error(f"❌ Proxy returned error code: {response.status_code}")
+                except requests.RequestException as e:
+                    st.error(f"❌ Proxy connection failed: {str(e)}")
+        
+        with col2:
+            st.info("The YFinance Proxy is a Python service that helps avoid Yahoo Finance API rate limits. It serves as a caching layer between the API scraper and Yahoo Finance.")
+    except Exception as e:
+        st.error(f"Error checking YFinance proxy: {e}")
     
     st.divider()
     

@@ -14,12 +14,21 @@ import (
 	"github.com/tiny-ria/quotron/api-scraper/internal/models"
 )
 
+// ProxyHealthResponse represents the response from the health endpoint
+type ProxyHealthResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
 // YahooProxyClient implements financial data fetching from a local Python yfinance proxy
 type YahooProxyClient struct {
 	httpClient   *http.Client
 	proxyURL     string
 	proxyProcess *exec.Cmd
 	timeout      time.Duration
+	cacheHits    int
+	cacheMisses  int
+	requestCount int
 }
 
 // NewYahooProxyClient creates a new Yahoo Finance proxy client and starts the proxy server
@@ -102,6 +111,7 @@ func (c *YahooProxyClient) GetStockQuote(ctx context.Context, symbol string) (*m
 		return nil, errors.Wrap(err, "failed to create request")
 	}
 
+	c.requestCount++
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to execute request to Yahoo Finance proxy")
@@ -110,6 +120,14 @@ func (c *YahooProxyClient) GetStockQuote(ctx context.Context, symbol string) (*m
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.Errorf("Yahoo Finance proxy returned non-200 status: %d", resp.StatusCode)
+	}
+
+	// Track cache hits/misses if header is present
+	cacheStatus := resp.Header.Get("X-Cache-Status")
+	if cacheStatus == "hit" {
+		c.cacheHits++
+	} else if cacheStatus == "miss" {
+		c.cacheMisses++
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -184,6 +202,7 @@ func (c *YahooProxyClient) GetMarketData(ctx context.Context, index string) (*mo
 		return nil, errors.Wrap(err, "failed to create request")
 	}
 
+	c.requestCount++
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to execute request to Yahoo Finance proxy")
@@ -192,6 +211,14 @@ func (c *YahooProxyClient) GetMarketData(ctx context.Context, index string) (*mo
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.Errorf("Yahoo Finance proxy returned non-200 status: %d", resp.StatusCode)
+	}
+
+	// Track cache hits/misses if header is present
+	cacheStatus := resp.Header.Get("X-Cache-Status")
+	if cacheStatus == "hit" {
+		c.cacheHits++
+	} else if cacheStatus == "miss" {
+		c.cacheMisses++
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -239,4 +266,44 @@ func (c *YahooProxyClient) GetMarketData(ctx context.Context, index string) (*mo
 	}
 
 	return md, nil
+}
+
+// CheckProxyHealth checks the health status of the proxy server
+func (c *YahooProxyClient) CheckProxyHealth(ctx context.Context) (*ProxyHealthResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.proxyURL+"/health", nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create health check request")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to execute health check request")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("health check returned non-200 status: %d", resp.StatusCode)
+	}
+
+	var health ProxyHealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return nil, errors.Wrap(err, "failed to decode health response")
+	}
+
+	return &health, nil
+}
+
+// GetCacheMetrics returns metrics about cache performance
+func (c *YahooProxyClient) GetCacheMetrics() (hits int, misses int, ratio float64) {
+	total := c.cacheHits + c.cacheMisses
+	ratio = 0
+	if total > 0 {
+		ratio = float64(c.cacheHits) / float64(total)
+	}
+	return c.cacheHits, c.cacheMisses, ratio
+}
+
+// GetRequestCount returns the total number of requests made
+func (c *YahooProxyClient) GetRequestCount() int {
+	return c.requestCount
 }
