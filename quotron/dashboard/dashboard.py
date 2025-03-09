@@ -99,6 +99,17 @@ def get_scheduler_logs(lines=50):
     except Exception as e:
         return [f"Error reading logs: {e}"]
 
+def clear_logs():
+    """Clear the scheduler log file."""
+    try:
+        with open(SCHEDULER_LOG_FILE, 'w') as f:
+            f.write("")
+        log_message("Logs cleared")
+        return True
+    except Exception as e:
+        st.error(f"Error clearing logs: {e}")
+        return False
+
 def start_scheduler():
     """Start the scheduler process directly, with environment variables from .env."""
     try:
@@ -429,13 +440,19 @@ def render_scheduler_controls():
     # Scheduler logs section with manual refresh
     st.divider()
     
-    # Simple header with refresh button
-    log_col1, log_col2 = st.columns([3, 1])
+    # Header with refresh and clear buttons
+    log_col1, log_col2, log_col3 = st.columns([3, 1, 1])
     with log_col1:
         st.subheader("Scheduler Logs")
     with log_col2:
         if st.button("Refresh Logs", key="refresh_logs"):
             st.rerun()
+    with log_col3:
+        if st.button("Clear Logs", key="clear_logs"):
+            if clear_logs():
+                st.success("Logs cleared successfully")
+                time.sleep(1)
+                st.rerun()
     
     # Display logs in a scrollable area
     logs = get_scheduler_logs(30)  # Get last 30 log entries
