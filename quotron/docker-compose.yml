@@ -60,13 +60,14 @@ services:
   postgres:
     image: postgres:15
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_USER=quotron
       - POSTGRES_PASSWORD=quotron
       - POSTGRES_DB=quotron
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./storage/migrations:/docker-entrypoint-initdb.d
     networks:
       - quotron-network
 
@@ -84,6 +85,50 @@ services:
       - minio-data:/data
     networks:
       - quotron-network
+      
+  # Dashboard for system monitoring and control
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=quotron
+      - DB_PASSWORD=quotron
+      - DB_NAME=quotron
+      - SCHEDULER_PATH=/app/scheduler
+    volumes:
+      - ./dashboard:/app/dashboard
+      - ./scheduler:/app/scheduler
+    networks:
+      - quotron-network
+    depends_on:
+      - postgres
+      - scheduler
+      
+  # Scheduler for running periodic jobs
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: scheduler
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=quotron
+      - DB_PASSWORD=quotron
+      - DB_NAME=quotron
+    volumes:
+      - ./scheduler:/app
+    networks:
+      - quotron-network
+    depends_on:
+      - postgres
+      - api-scraper
 
 networks:
   quotron-network:

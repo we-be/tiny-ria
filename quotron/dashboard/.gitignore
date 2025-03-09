@@ -1,0 +1,19 @@
+# Environment files
+.env
+.env.local
+
+# Virtual environment
+venv/
+__pycache__/
+
+# Streamlit
+.streamlit/
+
+# Logs and runtime files
+*.log
+scheduler_heartbeat
+run_scheduler.sh
+
+# IDE
+.idea/
+.vscode/
