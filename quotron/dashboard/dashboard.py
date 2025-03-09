@@ -247,13 +247,13 @@ def render_scheduler_controls():
     
     with col2:
         if scheduler_running:
-            if st.button("Stop Scheduler"):
+            if st.button("Stop Scheduler", key="stop_scheduler"):
                 if stop_scheduler():
                     st.success("Scheduler stopped successfully")
                     time.sleep(1)
                     st.rerun()
         else:
-            if st.button("Start Scheduler"):
+            if st.button("Start Scheduler", key="start_scheduler"):
                 if start_scheduler():
                     st.success("Scheduler started successfully")
                     time.sleep(1)
@@ -265,7 +265,7 @@ def render_scheduler_controls():
     job_options = ["market_index_job", "stock_quote_job"]
     selected_job = st.selectbox("Select a job to run", job_options)
     
-    if st.button(f"Run {selected_job}"):
+    if st.button(f"Run {selected_job}", key="run_job"):
         if run_job(selected_job):
             st.success(f"Job {selected_job} executed successfully")
 
@@ -403,7 +403,7 @@ def show_db_connection_settings():
     st.subheader("Database Connection Settings")
     
     # Add a "Test Connection" button right at the top
-    if st.button("Test Connection"):
+    if st.button("Test Current Connection", key="test_current_connection"):
         # This will either work or show a clear error in Streamlit
         conn = psycopg2.connect(
             host=os.environ["DB_HOST"],
@@ -434,7 +434,7 @@ def show_db_connection_settings():
         new_password = st.text_input("Database Password", current_password, type="password")
     
     # Test connection button
-    test_conn = st.button("Test Connection")
+    test_conn = st.button("Test New Settings", key="test_new_settings")
     
     if test_conn:
         try:
@@ -457,7 +457,7 @@ def show_db_connection_settings():
             os.environ["DB_PASSWORD"] = new_password
             
             # Save settings button appears after successful test
-            save_settings = st.button("Save Settings to .env")
+            save_settings = st.button("Save Settings to .env", key="save_settings")
             
             if save_settings:
                 env_file = ".env"
@@ -508,7 +508,7 @@ def show_db_connection_settings():
     # Check database tables
     st.divider()
     st.subheader("Database Table Check")
-    if st.button("Check Database Tables"):
+    if st.button("Check Database Tables", key="check_tables"):
         conn = get_db_connection()
         with conn.cursor() as cur:
             cur.execute("""
