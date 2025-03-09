@@ -28,10 +28,7 @@ func main() {
 	ctx := context.Background()
 	
 	// Choose API client based on flags
-	var apiClient interface {
-		GetStockQuote(ctx context.Context, symbol string) (*models.StockQuote, error)
-		GetMarketData(ctx context.Context, index string) (*models.MarketData, error)
-	}
+	var apiClient client.Client
 
 	// We'll initialize the client (with potential cleanup in defer)
 

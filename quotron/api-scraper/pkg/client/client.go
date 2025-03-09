@@ -13,6 +13,12 @@ import (
 	"github.com/tiny-ria/quotron/api-scraper/internal/models"
 )
 
+// Client defines the interface for financial data clients
+type Client interface {
+	GetStockQuote(ctx context.Context, symbol string) (*models.StockQuote, error)
+	GetMarketData(ctx context.Context, index string) (*models.MarketData, error)
+}
+
 // APIClient is a client for fetching financial data from APIs
 type APIClient struct {
 	httpClient *http.Client

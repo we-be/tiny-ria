@@ -148,24 +148,19 @@ func (h *HealthChecker) RecordHealthStatus(monitor HealthMonitor) error {
 
 // Implementation for Alpha Vantage Health Monitoring
 type AlphaVantageHealthMonitor struct {
-	client *AlphaVantageClient
+	client Client // Using the Client interface directly
 }
 
-func NewAlphaVantageHealthMonitor(client *AlphaVantageClient) *AlphaVantageHealthMonitor {
+func NewAlphaVantageHealthMonitor(client Client) *AlphaVantageHealthMonitor {
 	return &AlphaVantageHealthMonitor{client: client}
 }
 
 func (m *AlphaVantageHealthMonitor) CheckHealth() (HealthStatus, error, int64) {
 	start := time.Now()
 	
-	// Use the API key status as a simple health check
-	// In a real implementation, you would make a lightweight call to the API
-	if m.client.apiKey == "" {
-		return HealthStatusFailed, fmt.Errorf("no API key configured"), 0
-	}
-	
 	// Perform a minimal API call to check health
-	_, err := m.client.GetStockQuote("AAPL")
+	ctx := context.Background()
+	_, err := m.client.GetStockQuote(ctx, "AAPL")
 	responseTime := time.Since(start).Milliseconds()
 	
 	if err != nil {
@@ -182,17 +177,17 @@ func (m *AlphaVantageHealthMonitor) GetSourceInfo() (string, string, string) {
 func (m *AlphaVantageHealthMonitor) GetMetadata() HealthMetadata {
 	return HealthMetadata{
 		AdditionalInfo: map[string]interface{}{
-			"hasApiKey": m.client.apiKey != "",
+			"source": "Alpha Vantage",
 		},
 	}
 }
 
 // Implementation for Yahoo Finance Health Monitoring
 type YahooFinanceHealthMonitor struct {
-	client *YahooFinanceClient
+	client Client
 }
 
-func NewYahooFinanceHealthMonitor(client *YahooFinanceClient) *YahooFinanceHealthMonitor {
+func NewYahooFinanceHealthMonitor(client Client) *YahooFinanceHealthMonitor {
 	return &YahooFinanceHealthMonitor{client: client}
 }
 
@@ -200,7 +195,8 @@ func (m *YahooFinanceHealthMonitor) CheckHealth() (HealthStatus, error, int64) {
 	start := time.Now()
 	
 	// Perform a minimal API call to check health
-	_, err := m.client.GetStockQuote("AAPL")
+	ctx := context.Background()
+	_, err := m.client.GetStockQuote(ctx, "AAPL")
 	responseTime := time.Since(start).Milliseconds()
 	
 	if err != nil {
@@ -222,10 +218,10 @@ func (m *YahooFinanceHealthMonitor) GetMetadata() HealthMetadata {
 
 // Implementation for Yahoo Finance REST Client Health Monitoring
 type YahooFinanceRESTHealthMonitor struct {
-	client *YahooFinanceRESTClient
+	client Client
 }
 
-func NewYahooFinanceRESTHealthMonitor(client *YahooFinanceRESTClient) *YahooFinanceRESTHealthMonitor {
+func NewYahooFinanceRESTHealthMonitor(client Client) *YahooFinanceRESTHealthMonitor {
 	return &YahooFinanceRESTHealthMonitor{client: client}
 }
 
@@ -233,16 +229,12 @@ func (m *YahooFinanceRESTHealthMonitor) CheckHealth() (HealthStatus, error, int6
 	start := time.Now()
 	
 	// Perform a minimal API call to check health
-	_, err := m.client.GetStockQuote("AAPL")
+	ctx := context.Background()
+	_, err := m.client.GetStockQuote(ctx, "AAPL")
 	responseTime := time.Since(start).Milliseconds()
 	
 	if err != nil {
 		return HealthStatusFailed, err, responseTime
-	}
-	
-	// Check if we're hitting rate limits
-	if m.client.rateLimited {
-		return HealthStatusLimited, nil, responseTime
 	}
 	
 	return HealthStatusHealthy, nil, responseTime
@@ -253,13 +245,9 @@ func (m *YahooFinanceRESTHealthMonitor) GetSourceInfo() (string, string, string)
 }
 
 func (m *YahooFinanceRESTHealthMonitor) GetMetadata() HealthMetadata {
-	// In a real implementation, you would track and return actual rate limit info
 	return HealthMetadata{
-		RateLimitRemaining: m.client.remainingCalls,
-		RateLimitReset:     m.client.resetTime.Unix(),
 		AdditionalInfo: map[string]interface{}{
-			"rateLimited": m.client.rateLimited,
-			"retryCount":  m.client.retryCount,
+			"source": "Yahoo Finance REST API",
 		},
 	}
 }
