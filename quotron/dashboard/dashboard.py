@@ -146,9 +146,9 @@ def get_investment_models():
     
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT id, name, description, created_at
+            SELECT id, model_name as name, provider as description, fetched_at as created_at
             FROM investment_models
-            ORDER BY name
+            ORDER BY model_name
         """)
         data = cur.fetchall()
         result = pd.DataFrame(data) if data else pd.DataFrame()
@@ -162,10 +162,10 @@ def get_model_holdings(model_id):
     
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT symbol, name, weight, sector
+            SELECT ticker as symbol, position_name as name, allocation as weight, sector
             FROM model_holdings
             WHERE model_id = %s
-            ORDER BY weight DESC
+            ORDER BY allocation DESC
         """, (model_id,))
         data = cur.fetchall()
         result = pd.DataFrame(data) if data else pd.DataFrame()
@@ -179,10 +179,10 @@ def get_sector_allocations(model_id):
     
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT sector, allocation
+            SELECT sector, allocation_percent as allocation
             FROM sector_allocations
             WHERE model_id = %s
-            ORDER BY allocation DESC
+            ORDER BY allocation_percent DESC
         """, (model_id,))
         data = cur.fetchall()
         result = pd.DataFrame(data) if data else pd.DataFrame()
