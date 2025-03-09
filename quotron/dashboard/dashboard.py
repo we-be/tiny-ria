@@ -68,18 +68,34 @@ def get_scheduler_status():
     # Check for running process
     try:
         result = subprocess.run(
-            "ps aux | grep '[g]o run cmd/scheduler/main.go'", 
+            "ps aux | grep -E '[g]o run cmd/scheduler/main.go|/run_scheduler.sh'", 
             shell=True, 
             capture_output=True, 
             text=True
         )
         process_running = len(result.stdout.strip()) > 0
         
-        # Also check heartbeat
-        heartbeat_active = check_heartbeat()
-        
-        # Consider it running if both process and heartbeat are active
-        return process_running and heartbeat_active
+        if process_running:
+            # First priority: Process is running. Assume that heartbeat may catch up.
+            # This helps when the scheduler just started but heartbeat isn't created yet
+            return True
+            
+        # If no process is running, check if heartbeat is still active (very recent)
+        # This might happen if the process crashed but heartbeat file is still recent
+        if os.path.exists(SCHEDULER_HEARTBEAT_FILE):
+            try:
+                with open(SCHEDULER_HEARTBEAT_FILE, 'r') as f:
+                    heartbeat_time = datetime.fromisoformat(f.read().strip())
+                
+                # Only consider heartbeat valid if it's extremely recent (within 10 seconds)
+                heartbeat_age = (datetime.now() - heartbeat_time).total_seconds()
+                if heartbeat_age < 10:
+                    log_message(f"Process not found but heartbeat is very recent ({heartbeat_age:.1f}s). Assuming still running.")
+                    return True
+            except Exception:
+                pass
+                
+        return False
     except Exception as e:
         log_message(f"Error checking scheduler status: {e}")
         return False
@@ -157,11 +173,25 @@ API_SCRAPER_PATH="/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
 go run cmd/scheduler/main.go -api-scraper=$API_SCRAPER_PATH >> {SCHEDULER_LOG_FILE} 2>&1 &
 SCHEDULER_PID=$!
 
-# Start the heartbeat loop
-while kill -0 $SCHEDULER_PID 2>/dev/null; do
+# Create initial heartbeat
+echo $(date -Iseconds) > {SCHEDULER_HEARTBEAT_FILE}
+
+# Start the heartbeat loop in background to prevent blocking
+(
+  while kill -0 $SCHEDULER_PID 2>/dev/null; do
     echo $(date -Iseconds) > {SCHEDULER_HEARTBEAT_FILE}
     sleep 5
-done
+  done
+  
+  # Clean up heartbeat file when scheduler stops
+  if [ -f "{SCHEDULER_HEARTBEAT_FILE}" ]; then
+    echo "Scheduler stopped, removing heartbeat file" >> {SCHEDULER_LOG_FILE}
+    rm {SCHEDULER_HEARTBEAT_FILE}
+  fi
+) &
+
+# Wait for the scheduler process to complete
+wait $SCHEDULER_PID
 """)
         
         # Make the script executable
@@ -384,6 +414,7 @@ def render_scheduler_controls():
     status_color = "green" if scheduler_running else "red"
     status_text = "Running" if scheduler_running else "Stopped"
     
+    # Status and controls section
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
@@ -421,31 +452,49 @@ def render_scheduler_controls():
             if st.button("Refresh Status", key="refresh_status"):
                 st.rerun()
     
+    # Job runner section
     st.divider()
-    
-    # Job runner and logs in columns
-    col1, col2 = st.columns([1, 2])
-    
+    st.subheader("Run Individual Jobs")
+    job_options = ["market_index_job", "stock_quote_job"]
+    col1, col2 = st.columns([3, 1])
     with col1:
-        st.subheader("Run Individual Jobs")
-        job_options = ["market_index_job", "stock_quote_job"]
         selected_job = st.selectbox("Select a job to run", job_options)
-        
-        if st.button(f"Run {selected_job}", key="run_job"):
+    with col2:
+        if st.button(f"Run", key="run_job"):
             if run_job(selected_job):
                 st.success(f"Job {selected_job} executed successfully")
                 time.sleep(1)
                 st.rerun()  # Refresh to show new logs
+                
+    # Scheduler logs section with auto-refresh
+    st.divider()
+    log_section = st.container()
     
-    with col2:
-        st.subheader("Scheduler Logs")
-        logs = get_scheduler_logs(30)  # Get last 30 log entries
-        
-        # Add a refresh button for logs
-        if st.button("Refresh Logs", key="refresh_logs"):
-            st.rerun()
+    with log_section:
+        logs_header_col, refresh_col = st.columns([3, 1])
+        with logs_header_col:
+            st.subheader("Scheduler Logs")
+        with refresh_col:
+            # Add auto-refresh toggle
+            auto_refresh = st.checkbox("Auto-refresh", value=scheduler_running, key="auto_refresh_logs")
             
+            if auto_refresh:
+                # Use a st.empty() to place the refresh time text
+                refresh_text = st.empty()
+                current_time = datetime.now()
+                refresh_text.text(f"Auto-refreshing... (Last: {current_time.strftime('%H:%M:%S')})")
+                
+                # Set up auto-refresh using Streamlit's built-in mechanism
+                if scheduler_running:  # Only auto-refresh if scheduler is running
+                    time.sleep(0.5)  # Add a small delay to avoid flicker
+                    st.rerun()
+            else:
+                # Manual refresh button
+                if st.button("Refresh", key="refresh_logs"):
+                    st.rerun()
+        
         # Display logs in a scrollable area with fixed height
+        logs = get_scheduler_logs(30)  # Get last 30 log entries
         log_text = "".join(logs)
         st.code(log_text, language="bash")
 
