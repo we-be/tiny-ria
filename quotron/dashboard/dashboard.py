@@ -30,19 +30,15 @@ if "DB_PASSWORD" not in os.environ:
 # Database connection
 def get_db_connection():
     """Create a connection to the PostgreSQL database."""
-    try:
-        conn = psycopg2.connect(
-            host=os.environ["DB_HOST"],
-            port=os.environ["DB_PORT"],
-            database=os.environ["DB_NAME"],
-            user=os.environ["DB_USER"],
-            password=os.environ["DB_PASSWORD"]
-        )
-        return conn
-    except Exception as e:
-        st.error(f"Database connection error: {e}")
-        st.info(f"Connection parameters: host={os.environ['DB_HOST']}, port={os.environ['DB_PORT']}, user={os.environ['DB_USER']}")
-        return None
+    # No try-except to let errors propagate up
+    conn = psycopg2.connect(
+        host=os.environ["DB_HOST"],
+        port=os.environ["DB_PORT"],
+        database=os.environ["DB_NAME"],
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"]
+    )
+    return conn
 
 # Scheduler control
 def get_scheduler_status():
@@ -106,169 +102,134 @@ def run_job(job_name):
 def get_latest_market_indices():
     """Get the latest market indices data."""
     conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
     
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT index_name, value, change, change_percent, timestamp
-                FROM (
-                    SELECT *, ROW_NUMBER() OVER (PARTITION BY index_name ORDER BY timestamp DESC) as rn
-                    FROM market_indices
-                ) sub
-                WHERE rn = 1
-                ORDER BY index_name
-            """)
-            data = cur.fetchall()
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching market indices: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT index_name, value, change, change_percent, timestamp
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY index_name ORDER BY timestamp DESC) as rn
+                FROM market_indices
+            ) sub
+            WHERE rn = 1
+            ORDER BY index_name
+        """)
+        data = cur.fetchall()
+        result = pd.DataFrame(data) if data else pd.DataFrame()
+    
+    conn.close()
+    return result
 
 def get_latest_stock_quotes(limit=20):
     """Get the latest stock quotes data."""
     conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
     
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT symbol, price, change, change_percent, volume, timestamp, source
-                FROM (
-                    SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
-                    FROM stock_quotes
-                ) sub
-                WHERE rn = 1
-                ORDER BY ABS(change_percent) DESC
-                LIMIT %s
-            """, (limit,))
-            data = cur.fetchall()
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching stock quotes: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT symbol, price, change, change_percent, volume, timestamp, source
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
+                FROM stock_quotes
+            ) sub
+            WHERE rn = 1
+            ORDER BY ABS(change_percent) DESC
+            LIMIT %s
+        """, (limit,))
+        data = cur.fetchall()
+        result = pd.DataFrame(data) if data else pd.DataFrame()
+    
+    conn.close()
+    return result
 
 def get_investment_models():
     """Get all investment models."""
     conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
     
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT id, name, description, created_at
-                FROM investment_models
-                ORDER BY name
-            """)
-            data = cur.fetchall()
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching investment models: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT id, name, description, created_at
+            FROM investment_models
+            ORDER BY name
+        """)
+        data = cur.fetchall()
+        result = pd.DataFrame(data) if data else pd.DataFrame()
+    
+    conn.close()
+    return result
 
 def get_model_holdings(model_id):
     """Get holdings for a specific investment model."""
     conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
     
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT symbol, name, weight, sector
-                FROM model_holdings
-                WHERE model_id = %s
-                ORDER BY weight DESC
-            """, (model_id,))
-            data = cur.fetchall()
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching model holdings: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT symbol, name, weight, sector
+            FROM model_holdings
+            WHERE model_id = %s
+            ORDER BY weight DESC
+        """, (model_id,))
+        data = cur.fetchall()
+        result = pd.DataFrame(data) if data else pd.DataFrame()
+    
+    conn.close()
+    return result
 
 def get_sector_allocations(model_id):
     """Get sector allocations for a specific investment model."""
     conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
     
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT sector, allocation
-                FROM sector_allocations
-                WHERE model_id = %s
-                ORDER BY allocation DESC
-            """, (model_id,))
-            data = cur.fetchall()
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching sector allocations: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT sector, allocation
+            FROM sector_allocations
+            WHERE model_id = %s
+            ORDER BY allocation DESC
+        """, (model_id,))
+        data = cur.fetchall()
+        result = pd.DataFrame(data) if data else pd.DataFrame()
+    
+    conn.close()
+    return result
 
 def get_data_source_health():
     """Get health status of data sources."""
     conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
     
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Check the latest data from each source
-            cur.execute("""
-                SELECT source, 
-                       MAX(timestamp) as last_update,
-                       COUNT(*) as record_count,
-                       NOW() - MAX(timestamp) as age
-                FROM stock_quotes
-                GROUP BY source
-                ORDER BY last_update DESC
-            """)
-            data = cur.fetchall()
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching data source health: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        # Check the latest data from each source
+        cur.execute("""
+            SELECT source, 
+                   MAX(timestamp) as last_update,
+                   COUNT(*) as record_count,
+                   NOW() - MAX(timestamp) as age
+            FROM stock_quotes
+            GROUP BY source
+            ORDER BY last_update DESC
+        """)
+        data = cur.fetchall()
+        result = pd.DataFrame(data) if data else pd.DataFrame()
+    
+    conn.close()
+    return result
 
 def get_batch_statistics():
     """Get statistics for data batches."""
     conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
     
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT b.id, b.source, b.created_at, 
-                       bs.record_count, bs.error_count, 
-                       bs.processing_time_ms
-                FROM data_batches b
-                JOIN batch_statistics bs ON b.id = bs.batch_id
-                ORDER BY b.created_at DESC
-                LIMIT 10
-            """)
-            data = cur.fetchall()
-            return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching batch statistics: {e}")
-        return pd.DataFrame()
-    finally:
-        conn.close()
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT b.id, b.source, b.created_at, 
+                   bs.record_count, bs.error_count, 
+                   bs.processing_time_ms
+            FROM data_batches b
+            JOIN batch_statistics bs ON b.id = bs.batch_id
+            ORDER BY b.created_at DESC
+            LIMIT 10
+        """)
+        data = cur.fetchall()
+        result = pd.DataFrame(data) if data else pd.DataFrame()
+    
+    conn.close()
+    return result
 
 # UI components
 def render_scheduler_controls():
@@ -442,18 +403,16 @@ def show_db_connection_settings():
     
     # Add a "Test Connection" button right at the top
     if st.button("Test Connection"):
-        try:
-            conn = psycopg2.connect(
-                host=os.environ["DB_HOST"],
-                port=os.environ["DB_PORT"],
-                database=os.environ["DB_NAME"],
-                user=os.environ["DB_USER"],
-                password=os.environ["DB_PASSWORD"]
-            )
-            conn.close()
-            st.success("✅ Connection successful!")
-        except Exception as e:
-            st.error(f"❌ Connection failed: {e}")
+        # This will either work or show a clear error in Streamlit
+        conn = psycopg2.connect(
+            host=os.environ["DB_HOST"],
+            port=os.environ["DB_PORT"],
+            database=os.environ["DB_NAME"],
+            user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"]
+        )
+        conn.close()
+        st.success("✅ Connection successful!")
     
     # Display current settings
     current_host = os.environ["DB_HOST"]
@@ -550,29 +509,22 @@ def show_db_connection_settings():
     st.subheader("Database Table Check")
     if st.button("Check Database Tables"):
         conn = get_db_connection()
-        if conn:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT table_name 
-                        FROM information_schema.tables 
-                        WHERE table_schema = 'public'
-                        ORDER BY table_name
-                    """)
-                    tables = [row[0] for row in cur.fetchall()]
-                    if tables:
-                        st.success(f"Found {len(tables)} tables in database")
-                        st.write("Available tables:")
-                        for table in tables:
-                            st.code(table)
-                    else:
-                        st.warning("No tables found in the database.")
-            except Exception as e:
-                st.error(f"Error checking tables: {e}")
-            finally:
-                conn.close()
-        else:
-            st.error("Cannot connect to database to check tables.")
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+            """)
+            tables = [row[0] for row in cur.fetchall()]
+            if tables:
+                st.success(f"Found {len(tables)} tables in database")
+                st.write("Available tables:")
+                for table in tables:
+                    st.code(table)
+            else:
+                st.warning("No tables found in the database.")
+        conn.close()
 
 def main():
     st.set_page_config(
