@@ -9,8 +9,10 @@ __pycache__/
 # Streamlit
 .streamlit/
 
-# Logs
+# Logs and runtime files
 *.log
+scheduler_heartbeat
+run_scheduler.sh
 
 # IDE
 .idea/

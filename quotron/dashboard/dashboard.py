@@ -41,8 +41,31 @@ def get_db_connection():
     return conn
 
 # Scheduler control
+SCHEDULER_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scheduler.log")
+SCHEDULER_HEARTBEAT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scheduler_heartbeat")
+
+def create_heartbeat_file():
+    """Create the heartbeat file with current timestamp."""
+    with open(SCHEDULER_HEARTBEAT_FILE, 'w') as f:
+        f.write(datetime.now().isoformat())
+
+def check_heartbeat():
+    """Check if heartbeat file exists and is recent."""
+    if not os.path.exists(SCHEDULER_HEARTBEAT_FILE):
+        return False
+    
+    try:
+        with open(SCHEDULER_HEARTBEAT_FILE, 'r') as f:
+            heartbeat_time = datetime.fromisoformat(f.read().strip())
+        
+        # Heartbeat is valid if it's less than 60 seconds old
+        return (datetime.now() - heartbeat_time).total_seconds() < 60
+    except Exception:
+        return False
+
 def get_scheduler_status():
     """Check if the scheduler is running."""
+    # Check for running process
     try:
         result = subprocess.run(
             "ps aux | grep '[g]o run cmd/scheduler/main.go'", 
@@ -50,52 +73,125 @@ def get_scheduler_status():
             capture_output=True, 
             text=True
         )
-        return len(result.stdout.strip()) > 0
+        process_running = len(result.stdout.strip()) > 0
+        
+        # Also check heartbeat
+        heartbeat_active = check_heartbeat()
+        
+        # Consider it running if both process and heartbeat are active
+        return process_running and heartbeat_active
     except Exception as e:
-        st.error(f"Error checking scheduler status: {e}")
+        log_message(f"Error checking scheduler status: {e}")
         return False
+
+def log_message(message):
+    """Log a message to the scheduler log file."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] {message}\n"
+    
+    try:
+        with open(SCHEDULER_LOG_FILE, 'a') as f:
+            f.write(log_entry)
+    except Exception as e:
+        st.error(f"Error writing to log: {e}")
+
+def get_scheduler_logs(lines=50):
+    """Get the last n lines from the log file."""
+    if not os.path.exists(SCHEDULER_LOG_FILE):
+        return ["No logs available yet."]
+    
+    try:
+        with open(SCHEDULER_LOG_FILE, 'r') as f:
+            logs = f.readlines()
+        return logs[-lines:] if logs else ["No log entries found."]
+    except Exception as e:
+        return [f"Error reading logs: {e}"]
 
 def start_scheduler():
     """Start the scheduler process."""
     try:
+        # Create logs directory if it doesn't exist
+        logs_dir = os.path.dirname(SCHEDULER_LOG_FILE)
+        os.makedirs(logs_dir, exist_ok=True)
+        
+        # Create a script to run the scheduler with heartbeat
+        heartbeat_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_scheduler.sh")
+        with open(heartbeat_script, 'w') as f:
+            f.write(f"""#!/bin/bash
+cd /home/hunter/Desktop/tiny-ria/quotron/scheduler
+# Start the main scheduler
+go run cmd/scheduler/main.go > {SCHEDULER_LOG_FILE} 2>&1 &
+SCHEDULER_PID=$!
+
+# Start the heartbeat loop
+while kill -0 $SCHEDULER_PID 2>/dev/null; do
+    echo $(date -Iseconds) > {SCHEDULER_HEARTBEAT_FILE}
+    sleep 5
+done
+""")
+        
+        # Make the script executable
+        os.chmod(heartbeat_script, 0o755)
+        
+        # Start the script
         subprocess.Popen(
-            "cd /home/hunter/Desktop/tiny-ria/quotron/scheduler && go run cmd/scheduler/main.go", 
+            heartbeat_script,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True
         )
+        
+        log_message("Scheduler started")
         return True
     except Exception as e:
-        st.error(f"Error starting scheduler: {e}")
+        log_message(f"Error starting scheduler: {e}")
         return False
 
 def stop_scheduler():
     """Stop the scheduler process."""
     try:
+        # Kill both the scheduler and the heartbeat script
         subprocess.run(
             "pkill -f 'go run cmd/scheduler/main.go'", 
             shell=True, 
             capture_output=True, 
             text=True
         )
+        
+        # Remove heartbeat file
+        if os.path.exists(SCHEDULER_HEARTBEAT_FILE):
+            os.remove(SCHEDULER_HEARTBEAT_FILE)
+        
+        log_message("Scheduler stopped")
         return True
     except Exception as e:
-        st.error(f"Error stopping scheduler: {e}")
+        log_message(f"Error stopping scheduler: {e}")
         return False
 
 def run_job(job_name):
     """Run a specific job immediately."""
     try:
-        subprocess.run(
+        log_message(f"Running job: {job_name}")
+        
+        # Run the job and capture output
+        result = subprocess.run(
             f"cd /home/hunter/Desktop/tiny-ria/quotron/scheduler && go run cmd/scheduler/main.go -run-job={job_name}", 
             shell=True, 
             capture_output=True, 
             text=True
         )
+        
+        # Log the output
+        if result.stdout:
+            log_message(f"Job {job_name} stdout: {result.stdout.strip()}")
+        if result.stderr:
+            log_message(f"Job {job_name} stderr: {result.stderr.strip()}")
+            
+        log_message(f"Job {job_name} completed with exit code {result.returncode}")
         return True
     except Exception as e:
-        st.error(f"Error running job {job_name}: {e}")
+        log_message(f"Error running job {job_name}: {e}")
         return False
 
 # Data fetching
@@ -237,13 +333,27 @@ def render_scheduler_controls():
     """Render controls for the scheduler."""
     st.subheader("Scheduler Controls")
     
+    # Check scheduler status with heartbeat
     scheduler_running = get_scheduler_status()
     status_color = "green" if scheduler_running else "red"
     status_text = "Running" if scheduler_running else "Stopped"
     
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         st.markdown(f"**Status:** <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
+        
+        # Add last heartbeat info if file exists
+        if os.path.exists(SCHEDULER_HEARTBEAT_FILE):
+            try:
+                with open(SCHEDULER_HEARTBEAT_FILE, 'r') as f:
+                    heartbeat_time = datetime.fromisoformat(f.read().strip())
+                time_diff = datetime.now() - heartbeat_time
+                if time_diff.total_seconds() < 60:
+                    st.markdown(f"**Last heartbeat:** <span style='color:green'>{time_diff.total_seconds():.1f} seconds ago</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"**Last heartbeat:** <span style='color:red'>{time_diff.total_seconds():.1f} seconds ago</span>", unsafe_allow_html=True)
+            except Exception:
+                st.markdown("**Last heartbeat:** <span style='color:red'>Unable to read</span>", unsafe_allow_html=True)
     
     with col2:
         if scheduler_running:
@@ -252,22 +362,46 @@ def render_scheduler_controls():
                     st.success("Scheduler stopped successfully")
                     time.sleep(1)
                     st.rerun()
-        else:
+    
+    with col3:
+        if not scheduler_running:
             if st.button("Start Scheduler", key="start_scheduler"):
                 if start_scheduler():
                     st.success("Scheduler started successfully")
                     time.sleep(1)
                     st.rerun()
+        else:
+            # Add a refresh button
+            if st.button("Refresh Status", key="refresh_status"):
+                st.rerun()
     
     st.divider()
     
-    st.subheader("Run Individual Jobs")
-    job_options = ["market_index_job", "stock_quote_job"]
-    selected_job = st.selectbox("Select a job to run", job_options)
+    # Job runner and logs in columns
+    col1, col2 = st.columns([1, 2])
     
-    if st.button(f"Run {selected_job}", key="run_job"):
-        if run_job(selected_job):
-            st.success(f"Job {selected_job} executed successfully")
+    with col1:
+        st.subheader("Run Individual Jobs")
+        job_options = ["market_index_job", "stock_quote_job"]
+        selected_job = st.selectbox("Select a job to run", job_options)
+        
+        if st.button(f"Run {selected_job}", key="run_job"):
+            if run_job(selected_job):
+                st.success(f"Job {selected_job} executed successfully")
+                time.sleep(1)
+                st.rerun()  # Refresh to show new logs
+    
+    with col2:
+        st.subheader("Scheduler Logs")
+        logs = get_scheduler_logs(30)  # Get last 30 log entries
+        
+        # Add a refresh button for logs
+        if st.button("Refresh Logs", key="refresh_logs"):
+            st.rerun()
+            
+        # Display logs in a scrollable area with fixed height
+        log_text = "".join(logs)
+        st.code(log_text, language="bash")
 
 def render_market_overview():
     """Render the market overview section."""
