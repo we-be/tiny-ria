@@ -60,4 +60,10 @@ wheels/
 *.egg
 
 # Jupyter Notebook
-.ipynb_checkpointsquotron/scheduler/scheduler-config.json
+.ipynb_checkpoints
+
+# Scheduler config
+quotron/scheduler/scheduler-config.json
+
+# Agent context
+context.txt
