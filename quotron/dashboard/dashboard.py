@@ -105,13 +105,13 @@ def get_latest_market_indices():
     
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT index_name, value, change, change_percent, timestamp
+            SELECT name as index_name, value, change, change_percent, timestamp
             FROM (
-                SELECT *, ROW_NUMBER() OVER (PARTITION BY index_name ORDER BY timestamp DESC) as rn
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY name ORDER BY timestamp DESC) as rn
                 FROM market_indices
             ) sub
             WHERE rn = 1
-            ORDER BY index_name
+            ORDER BY name
         """)
         data = cur.fetchall()
         result = pd.DataFrame(data) if data else pd.DataFrame()
