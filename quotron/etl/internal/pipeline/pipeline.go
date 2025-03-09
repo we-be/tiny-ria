@@ -7,7 +7,7 @@ import (
 	"log"
 	"sync"
 	"time"
-	"uuid"
+	"github.com/google/uuid"
 
 	"github.com/we-be/tiny-ria/quotron/etl/internal/db"
 	"github.com/we-be/tiny-ria/quotron/etl/internal/enrichment"
@@ -643,7 +643,7 @@ func (p *Pipeline) ProcessMixedBatch(ctx context.Context, quotes []models.StockQ
 // generateBatchID generates a unique batch ID
 func generateBatchID(prefix string) string {
 	timestamp := time.Now().UTC().Format("20060102150405")
-	uniqueID := uuid.NewString()[:8]
+	uniqueID := uuid.New().String()[:8]
 	return fmt.Sprintf("%s_%s_%s", prefix, timestamp, uniqueID)
 }
 

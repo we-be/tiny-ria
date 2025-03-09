@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 	"time"
 
 	"github.com/we-be/tiny-ria/quotron/etl/internal/db"
@@ -45,7 +44,7 @@ func main() {
 		// List options
 		limit         = flag.Int("limit", 10, "Number of items to list")
 		symbols       = flag.String("symbols", "", "Comma-separated list of symbols to filter")
-		indices       = flag.String("indices", "", "Comma-separated list of indices to filter")
+		indexList     = flag.String("index-list", "", "Comma-separated list of indices to filter")
 		
 		// Realtime options
 		duration      = flag.Int("duration", 60, "Duration in seconds to run the real-time processing")
@@ -177,7 +176,7 @@ func main() {
 
 	if *listCmd {
 		// List latest data
-		listLatestData(ctx, database, *limit, *symbols, *indices)
+		listLatestData(ctx, database, *limit, *symbols, *indexList)
 	}
 
 	// If no command is specified, show usage
