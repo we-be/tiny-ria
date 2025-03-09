@@ -87,7 +87,22 @@ def get_scheduler_status():
 def log_message(message):
     """Log a message to the scheduler log file."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_entry = f"[{timestamp}] {message}\n"
+    
+    # Filter out any potential API keys before logging
+    # This is a basic approach - in production you'd want more sophisticated patterns
+    filtered_message = message
+    api_key_patterns = [
+        os.environ.get("ALPHA_VANTAGE_API_KEY", ""),
+        os.environ.get("FINANCE_API_KEY", ""),
+        "api_key=", "apikey=", "key=", "token="
+    ]
+    
+    # Remove non-empty patterns
+    for pattern in api_key_patterns:
+        if pattern and len(pattern) > 5:  # Only filter non-empty meaningful patterns
+            filtered_message = filtered_message.replace(pattern, "[API_KEY_REDACTED]")
+    
+    log_entry = f"[{timestamp}] {filtered_message}\n"
     
     try:
         with open(SCHEDULER_LOG_FILE, 'a') as f:
@@ -122,16 +137,24 @@ cd /home/hunter/Desktop/tiny-ria/quotron/scheduler
 
 # Load environment variables from .env file
 if [ -f "/home/hunter/Desktop/tiny-ria/quotron/.env" ]; then
-    echo "Loading .env file" >> {SCHEDULER_LOG_FILE}
+    echo "Loading environment variables from .env file" >> {SCHEDULER_LOG_FILE}
     export $(grep -v '^#' /home/hunter/Desktop/tiny-ria/quotron/.env | xargs)
-    echo "Loaded API key: $ALPHA_VANTAGE_API_KEY" >> {SCHEDULER_LOG_FILE}
+    # Check if API key is loaded but don't log the key itself
+    if [ ! -z "$ALPHA_VANTAGE_API_KEY" ]; then
+        echo "Alpha Vantage API key loaded successfully" >> {SCHEDULER_LOG_FILE}
+    else
+        echo "WARNING: Alpha Vantage API key not found in .env file" >> {SCHEDULER_LOG_FILE}
+    fi
 else
     echo "No .env file found" >> {SCHEDULER_LOG_FILE}
 fi
 
-# Start the main scheduler
-echo "Starting scheduler with API key: $ALPHA_VANTAGE_API_KEY" >> {SCHEDULER_LOG_FILE}
-go run cmd/scheduler/main.go >> {SCHEDULER_LOG_FILE} 2>&1 &
+# Start the main scheduler 
+# Mask API key in logs
+echo "Starting scheduler with Alpha Vantage API configured" >> {SCHEDULER_LOG_FILE}
+# Find the API scraper binary or use the source code directly
+API_SCRAPER_PATH="/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
+go run cmd/scheduler/main.go -api-scraper=$API_SCRAPER_PATH >> {SCHEDULER_LOG_FILE} 2>&1 &
 SCHEDULER_PID=$!
 
 # Start the heartbeat loop
@@ -191,7 +214,10 @@ def run_job(job_name):
         if [ -f "/home/hunter/Desktop/tiny-ria/quotron/.env" ]; then
             export $(grep -v '^#' /home/hunter/Desktop/tiny-ria/quotron/.env | xargs)
         fi
-        go run cmd/scheduler/main.go -run-job={job_name}
+        
+        # Find the API scraper binary location
+        API_SCRAPER_PATH="/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
+        go run cmd/scheduler/main.go -api-scraper=$API_SCRAPER_PATH -run-job={job_name}
         """
         
         # Run the job and capture output
