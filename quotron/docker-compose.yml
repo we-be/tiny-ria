@@ -1,6 +1,36 @@
 version: '3.8'
 
 services:
+  # API Service - HTTP-based API for finance data
+  api-service:
+    build:
+      context: ./api-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=quotron
+      - DB_PASSWORD=quotron
+      - DB_NAME=quotron
+      - ALPHA_VANTAGE_API_KEY=${FINANCE_API_KEY:-demo}
+    networks:
+      - quotron-network
+    depends_on:
+      - postgres
+      - yahoo-proxy
+
+  # Yahoo Finance Proxy Server
+  yahoo-proxy:
+    build:
+      context: ./api-scraper/scripts
+      dockerfile: Dockerfile.yfinance
+    ports:
+      - "5000:5000"
+    networks:
+      - quotron-network
+
   # API Scraper
   api-scraper:
     build:
@@ -8,7 +38,7 @@ services:
       dockerfile: Dockerfile
       target: api-scraper
     environment:
-      - FINANCE_API_KEY=${FINANCE_API_KEY}
+      - FINANCE_API_KEY=${FINANCE_API_KEY:-demo}
       - BASE_URL=${API_BASE_URL:-https://api.example.com/v1}
     networks:
       - quotron-network
@@ -122,13 +152,16 @@ services:
       - DB_USER=quotron
       - DB_PASSWORD=quotron
       - DB_NAME=quotron
+      - API_SERVICE_HOST=api-service
+      - API_SERVICE_PORT=8080
+      - USE_API_SERVICE=true
     volumes:
       - ./scheduler:/app
     networks:
       - quotron-network
     depends_on:
       - postgres
-      - api-scraper
+      - api-service
 
 networks:
   quotron-network:
