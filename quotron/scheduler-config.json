@@ -1,0 +1,30 @@
+{
+  "api_key": "demo",
+  "api_base_url": "https://www.alphavantage.co/query",
+  "api_service_host": "localhost",
+  "api_service_port": 8080,
+  "use_api_service": true,
+  "api_scraper": "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/api-scraper",
+  "output_dir": "data",
+  "log_level": "info",
+  "timezone": "UTC",
+  "retention": 604800000000000,
+  "schedules": {
+    "stock_quotes": {
+      "cron": "*/30 * * * *",
+      "enabled": true,
+      "description": "Fetch stock quotes for tracked symbols",
+      "parameters": {
+        "symbols": "AAPL,MSFT,GOOG,AMZN,TSLA,NVDA"
+      }
+    },
+    "market_indices": {
+      "cron": "0 * * * *",
+      "enabled": true,
+      "description": "Fetch market indices data",
+      "parameters": {
+        "indices": "SPY,QQQ,DIA"
+      }
+    }
+  }
+}

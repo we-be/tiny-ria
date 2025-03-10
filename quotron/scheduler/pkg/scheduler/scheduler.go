@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"github.com/we-be/tiny-ria/quotron/scheduler/internal/config"
-	"github.com/we-be/tiny-ria/quotron/scheduler/internal/jobs"
+	"github.com/tiny-ria/quotron/scheduler/internal/config"
+	"github.com/tiny-ria/quotron/scheduler/internal/jobs"
 )
 
 // Scheduler manages scheduled jobs
@@ -64,15 +64,27 @@ func (s *Scheduler) RegisterJob(job jobs.Job) error {
 }
 
 // RegisterDefaultJobs registers the default set of jobs
-func (s *Scheduler) RegisterDefaultJobs(apiScraperPath string) error {
+func (s *Scheduler) RegisterDefaultJobs(cfg *config.Config) error {
 	// Stock quotes job
-	stockQuoteJob := jobs.NewStockQuoteJob(s.config.APIKey, apiScraperPath, true)
+	stockQuoteJob := jobs.NewStockQuoteJob(cfg.ApiKey, cfg.ApiScraper, true)
+	
+	// Configure to use API service if enabled
+	if cfg.UseAPIService {
+		stockQuoteJob.WithAPIService(cfg.ApiHost, cfg.ApiPort)
+	}
+	
 	if err := s.RegisterJob(stockQuoteJob); err != nil {
 		return err
 	}
 
 	// Market indices job
-	marketIndexJob := jobs.NewMarketIndexJob(s.config.APIKey, apiScraperPath, true)
+	marketIndexJob := jobs.NewMarketIndexJob(cfg.ApiKey, cfg.ApiScraper, true)
+	
+	// Configure to use API service if enabled
+	if cfg.UseAPIService {
+		marketIndexJob.WithAPIService(cfg.ApiHost, cfg.ApiPort)
+	}
+	
 	if err := s.RegisterJob(marketIndexJob); err != nil {
 		return err
 	}

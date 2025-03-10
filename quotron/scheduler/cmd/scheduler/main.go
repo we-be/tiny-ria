@@ -10,14 +10,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/we-be/tiny-ria/quotron/scheduler/internal/config"
-	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/scheduler"
+	"github.com/tiny-ria/quotron/scheduler/internal/config"
+	"github.com/tiny-ria/quotron/scheduler/pkg/scheduler"
 )
 
 func main() {
 	// Parse command-line arguments
 	configPath := flag.String("config", "", "Path to config file")
 	apiScraperPath := flag.String("api-scraper", "", "Path to the API scraper binary")
+	apiServiceHost := flag.String("api-host", "", "Hostname for the API service")
+	apiServicePort := flag.Int("api-port", 0, "Port for the API service")
+	useAPIService := flag.Bool("use-api-service", false, "Use API service instead of direct execution")
 	genConfig := flag.Bool("gen-config", false, "Generate a default config file")
 	runOnce := flag.Bool("run-once", false, "Run all jobs once and exit")
 	runJob := flag.String("run-job", "", "Run a specific job once and exit")
@@ -58,41 +61,59 @@ func main() {
 		cfg.APIKey = apiKey
 	}
 
-	// Check API key
-	if cfg.APIKey == "" {
-		log.Fatalf("API key not provided. Set it in the config file or ALPHA_VANTAGE_API_KEY environment variable")
+	// Override API service settings from command line if provided
+	if *apiServiceHost != "" {
+		cfg.APIServiceHost = *apiServiceHost
+	}
+	if *apiServicePort != 0 {
+		cfg.APIServicePort = *apiServicePort
+	}
+	if *useAPIService {
+		cfg.UseAPIService = true
 	}
 
-	// Find API scraper binary if not specified
-	if *apiScraperPath == "" {
-		// Check common locations
-		candidates := []string{
-			"../api-scraper/api-scraper",
-			"../../api-scraper/api-scraper",
-			"/usr/local/bin/api-scraper",
+	// Find API scraper binary if not using API service and path not specified
+	if !cfg.UseAPIService {
+		// Check API key only if not using API service
+		if cfg.APIKey == "" {
+			log.Fatalf("API key not provided. Set it in the config file or ALPHA_VANTAGE_API_KEY environment variable")
 		}
+		
+		// Find API scraper binary if not specified
+		if *apiScraperPath == "" {
+			// Check common locations
+			candidates := []string{
+				"../api-scraper/api-scraper",
+				"../../api-scraper/api-scraper",
+				"/usr/local/bin/api-scraper",
+			}
 
-		for _, candidate := range candidates {
-			absPath, err := filepath.Abs(candidate)
-			if err == nil {
-				if _, err := os.Stat(absPath); err == nil {
-					*apiScraperPath = absPath
-					log.Printf("Found API scraper at %s", *apiScraperPath)
-					break
+			for _, candidate := range candidates {
+				absPath, err := filepath.Abs(candidate)
+				if err == nil {
+					if _, err := os.Stat(absPath); err == nil {
+						*apiScraperPath = absPath
+						log.Printf("Found API scraper at %s", *apiScraperPath)
+						break
+					}
 				}
 			}
 		}
-	}
 
-	if *apiScraperPath == "" {
-		log.Fatalf("API scraper binary not found. Specify it with -api-scraper")
+		if *apiScraperPath == "" {
+			log.Fatalf("API scraper binary not found. Specify it with -api-scraper or use -use-api-service flag")
+		}
+		
+		cfg.ApiScraper = *apiScraperPath
+	} else {
+		log.Printf("Using API service at %s:%d", cfg.APIServiceHost, cfg.APIServicePort)
 	}
 
 	// Create the scheduler
 	s := scheduler.NewScheduler(cfg)
 
 	// Register jobs
-	if err := s.RegisterDefaultJobs(*apiScraperPath); err != nil {
+	if err := s.RegisterDefaultJobs(cfg.ToConfig()); err != nil {
 		log.Fatalf("Failed to register jobs: %v", err)
 	}
 
@@ -134,6 +155,13 @@ func main() {
 		} else {
 			log.Printf("- %s: Next run at %s", job.Name(), nextRun.Format(time.RFC3339))
 		}
+	}
+	
+	// Print mode information
+	if cfg.UseAPIService {
+		log.Printf("Using API service mode with host %s:%d", cfg.APIServiceHost, cfg.APIServicePort)
+	} else {
+		log.Printf("Using legacy mode with API scraper at %s", cfg.ApiScraper)
 	}
 
 	// Wait for termination signal

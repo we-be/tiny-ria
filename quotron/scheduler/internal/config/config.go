@@ -8,11 +8,33 @@ import (
 	"time"
 )
 
+// Config holds global configuration settings
+type Config struct {
+	// Legacy API scraper settings
+	ApiScraper string
+	ApiKey     string
+	OutputDir  string
+	
+	// API Service settings
+	ApiHost       string
+	ApiPort       int
+	UseAPIService bool
+}
+
 // SchedulerConfig holds the scheduler configuration
 type SchedulerConfig struct {
 	// API settings
 	APIKey     string `json:"api_key"`
 	APIBaseURL string `json:"api_base_url"`
+	
+	// API Service settings
+	APIServiceHost string `json:"api_service_host"`
+	APIServicePort int    `json:"api_service_port"`
+	UseAPIService  bool   `json:"use_api_service"`
+	
+	// API Scraper settings
+	ApiScraper string `json:"api_scraper"`
+	OutputDir  string `json:"output_dir"`
 
 	// Job schedules
 	Schedules map[string]JobSchedule `json:"schedules"`
@@ -51,17 +73,43 @@ func LoadConfig(configPath string) (*SchedulerConfig, error) {
 	if envAPIKey := os.Getenv("ALPHA_VANTAGE_API_KEY"); envAPIKey != "" {
 		config.APIKey = envAPIKey
 	}
+	
+	// Check environment variables for API service settings
+	if envAPIHost := os.Getenv("API_SERVICE_HOST"); envAPIHost != "" {
+		config.APIServiceHost = envAPIHost
+	}
+	
+	if envAPIServiceEnabled := os.Getenv("USE_API_SERVICE"); envAPIServiceEnabled == "true" {
+		config.UseAPIService = true
+	}
 
 	return &config, nil
+}
+
+// ToConfig converts SchedulerConfig to the more streamlined Config type
+func (sc *SchedulerConfig) ToConfig() *Config {
+	return &Config{
+		ApiScraper:    sc.ApiScraper,
+		ApiKey:        sc.APIKey,
+		OutputDir:     sc.OutputDir,
+		ApiHost:       sc.APIServiceHost,
+		ApiPort:       sc.APIServicePort,
+		UseAPIService: sc.UseAPIService,
+	}
 }
 
 // DefaultConfig returns a default configuration
 func DefaultConfig() *SchedulerConfig {
 	return &SchedulerConfig{
-		APIBaseURL: "https://www.alphavantage.co/query",
-		LogLevel:   "info",
-		TimeZone:   "UTC",
-		Retention:  24 * time.Hour * 7, // 7 days
+		APIBaseURL:     "https://www.alphavantage.co/query",
+		APIServiceHost: "localhost",
+		APIServicePort: 8080,
+		UseAPIService:  false, // Default to legacy mode
+		ApiScraper:     "api-scraper", // Default path if not specified
+		OutputDir:      "data", // Default output directory
+		LogLevel:       "info",
+		TimeZone:       "UTC",
+		Retention:      24 * time.Hour * 7, // 7 days
 		Schedules: map[string]JobSchedule{
 			"stock_quotes": {
 				Cron:        "*/30 * * * *", // Every 30 minutes
