@@ -69,3 +69,5 @@ quotron/scheduler/scheduler-config.json
 context.txt
 quotron/browser-scraper/output/
 quotron/etl/modelcli
+quotron/diagnostics_report.md
+quotron/health_report.json

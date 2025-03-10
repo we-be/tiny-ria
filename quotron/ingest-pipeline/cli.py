@@ -52,6 +52,10 @@ def process_quotes_file(ingestor: DataIngestor, file_path: str, source: DataSour
         # Dictionary with a quotes key
         batch_id, quote_ids = ingestor.process_stock_quotes(data["quotes"], source)
         logger.info(f"Processed {len(quote_ids)} quotes in batch {batch_id}")
+    elif isinstance(data, dict) and "symbol" in data:
+        # Single quote object
+        batch_id, quote_ids = ingestor.process_stock_quotes([data], source)
+        logger.info(f"Processed single quote in batch {batch_id}")
     else:
         logger.error(f"Unsupported data format in {file_path}")
 
@@ -67,6 +71,10 @@ def process_indices_file(ingestor: DataIngestor, file_path: str, source: DataSou
         # Dictionary with an indices key
         batch_id, index_ids = ingestor.process_market_indices(data["indices"], source)
         logger.info(f"Processed {len(index_ids)} indices in batch {batch_id}")
+    elif isinstance(data, dict) and ("indexName" in data or "value" in data):
+        # Single index object
+        batch_id, index_ids = ingestor.process_market_indices([data], source)
+        logger.info(f"Processed single index in batch {batch_id}")
     else:
         logger.error(f"Unsupported data format in {file_path}")
 

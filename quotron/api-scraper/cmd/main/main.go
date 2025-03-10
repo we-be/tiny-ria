@@ -55,14 +55,18 @@ func main() {
 	}
 	
 	// Fetch stock quote
-	fmt.Printf("Fetching quote for %s...\n", *symbol)
+	if !*outputJson {
+		fmt.Printf("Fetching quote for %s...\n", *symbol)
+	}
 	quote, err := apiClient.GetStockQuote(ctx, *symbol)
 	if err != nil {
 		log.Printf("Failed to get stock quote: %v", err)
 	} else {
 		if *outputJson {
 			quoteJson, _ := json.MarshalIndent(quote, "", "  ")
-			fmt.Println(string(quoteJson))
+			fmt.Print(string(quoteJson))
+			// Exit early for JSON output to avoid any other text
+			return
 		} else {
 			fmt.Printf("Quote for %s as of %s:\n", quote.Symbol, quote.Timestamp.Format("2006-01-02"))
 			fmt.Printf("  Price:  $%.2f\n", quote.Price)
@@ -79,7 +83,9 @@ func main() {
 	}
 	
 	// Fetch market data for an index
-	fmt.Printf("Fetching market data for %s...\n", indexSymbol)
+	if !*outputJson {
+		fmt.Printf("Fetching market data for %s...\n", indexSymbol)
+	}
 	marketData, err := apiClient.GetMarketData(ctx, indexSymbol)
 	if err != nil {
 		// Check if the error contains information about API limits or timing

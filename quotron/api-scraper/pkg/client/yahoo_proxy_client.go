@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -37,12 +36,12 @@ func NewYahooProxyClient(timeout time.Duration) (*YahooProxyClient, error) {
 		timeout = 30 * time.Second
 	}
 
-	// Default proxy URL (localhost:8080)
-	proxyURL := "http://localhost:8080"
+	// Default proxy URL (localhost:5000)
+	proxyURL := "http://localhost:5000"
 
 	// Start the Python proxy server in the background with Python
 	scriptPath := "./scripts/yfinance_proxy.py"
-	cmd := exec.Command("python3", scriptPath, "--host", "localhost", "--port", "8080")
+	cmd := exec.Command("python3", scriptPath, "--host", "localhost", "--port", "5000")
 	if err := cmd.Start(); err != nil {
 		return nil, errors.Wrap(err, "failed to start Yahoo Finance proxy server")
 	}
@@ -58,7 +57,6 @@ func NewYahooProxyClient(timeout time.Duration) (*YahooProxyClient, error) {
 	}
 
 	// Wait for the server to start (simple approach)
-	fmt.Printf("Waiting for Yahoo Finance proxy server to start...\n")
 	time.Sleep(5 * time.Second)
 
 	// Check if the server is running
@@ -95,15 +93,11 @@ func (c *YahooProxyClient) Stop() {
 
 // GetStockQuote fetches a stock quote from the Yahoo Finance proxy
 func (c *YahooProxyClient) GetStockQuote(ctx context.Context, symbol string) (*models.StockQuote, error) {
-	// Construct the URL with query parameters
-	queryURL, err := url.Parse(c.proxyURL + "/quote")
+	// Construct the URL with path parameter
+	queryURL, err := url.Parse(c.proxyURL + "/quote/" + symbol)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse URL")
 	}
-
-	params := url.Values{}
-	params.Add("symbol", symbol)
-	queryURL.RawQuery = params.Encode()
 
 	// Make the request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL.String(), nil)
@@ -186,15 +180,11 @@ func (c *YahooProxyClient) GetMarketData(ctx context.Context, index string) (*mo
 	// Map the index symbol if needed
 	yahooSymbol := mapIndexSymbol(index)
 
-	// Construct the URL with query parameters
-	queryURL, err := url.Parse(c.proxyURL + "/market")
+	// Construct the URL with path parameter
+	queryURL, err := url.Parse(c.proxyURL + "/market/" + yahooSymbol)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse URL")
 	}
-
-	params := url.Values{}
-	params.Add("index", yahooSymbol)
-	queryURL.RawQuery = params.Encode()
 
 	// Make the request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL.String(), nil)

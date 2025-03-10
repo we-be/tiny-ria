@@ -137,8 +137,8 @@ def start_scheduler():
         # Start the scheduler directly
         log_message("Starting scheduler")
         
-        # Get the API scraper path
-        api_scraper_path = "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
+        # Get the API scraper path from environment variable or use default
+        api_scraper_path = os.environ.get("API_SCRAPER_PATH", "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/api-scraper")
         
         # Build the command
         cmd = [
@@ -481,7 +481,7 @@ def render_scheduler_controls():
     # Job runner section
     st.divider()
     st.subheader("Run Individual Jobs")
-    job_options = ["market_index_job", "stock_quote_job"]
+    job_options = ["market_indices", "stock_quotes"]
     col1, col2 = st.columns([3, 1])
     with col1:
         selected_job = st.selectbox("Select a job to run", job_options)
@@ -741,11 +741,20 @@ def render_data_source_health():
                     
                     # Determine age display
                     if pd.notna(source.get('last_success')):
-                        age_minutes = source.get('age', 0)
-                        if isinstance(age_minutes, str) and age_minutes == 'Never':
+                        age_value = source.get('age', 0)
+                        if isinstance(age_value, str) and age_value == 'Never':
                             age_text = "Never"
-                        else:
+                        elif isinstance(age_value, pd.Timedelta):
+                            # Convert timedelta to minutes
+                            age_minutes = age_value.total_seconds() / 60
                             age_text = f"{int(age_minutes)} min" if age_minutes < 60 else f"{int(age_minutes/60)} hr"
+                        else:
+                            # Try to convert to float or int
+                            try:
+                                age_minutes = float(age_value)
+                                age_text = f"{int(age_minutes)} min" if age_minutes < 60 else f"{int(age_minutes/60)} hr"
+                            except (ValueError, TypeError):
+                                age_text = str(age_value)
                     else:
                         age_text = "Never"
                     
@@ -771,9 +780,9 @@ def render_data_source_health():
                 # Prepare the dataframe for display
                 display_df = health_data[['source_type', 'source_name', 'source_detail', 'status', 'last_check', 'last_success', 'error_count', 'response_time_ms']].copy()
                 
-                # Add age column in minutes
+                # Add age column in minutes - use string type for consistency
                 display_df['age'] = display_df['last_success'].apply(
-                    lambda x: 'Never' if pd.isna(x) else int((datetime.now(x.tzinfo) - x).total_seconds() / 60)
+                    lambda x: 'Never' if pd.isna(x) else str(int((datetime.now(x.tzinfo) - x).total_seconds() / 60))
                 )
                 
                 # Add a visual status indicator
@@ -793,6 +802,10 @@ def render_data_source_health():
                 # Rename columns for better display
                 compact_df.columns = ['', 'Source', 'Description', 'Status', 'Age (min)', 'Errors', 'Response (ms)'] + \
                                     (['Records'] if 'records' in display_df.columns else [])
+                                    
+                # Convert numeric columns to appropriate types and ensure consistent types for Arrow serialization
+                compact_df['Errors'] = pd.to_numeric(compact_df['Errors'], errors='coerce').fillna(0).astype(int)
+                compact_df['Response (ms)'] = pd.to_numeric(compact_df['Response (ms)'], errors='coerce').fillna(0).astype(int)
                 
                 # Show the dataframe with conditional formatting
                 def highlight_status(s):
@@ -802,13 +815,13 @@ def render_data_source_health():
                                 else 'color: red' if x in ['error', 'failed']
                                 else 'color: gray' for x in s]
                     elif s.name == 'Age (min)':
-                        return ['color: red' if x != 'Never' and int(x) > 60
-                                else 'color: orange' if x != 'Never' and int(x) > 30
+                        return ['color: red' if x != 'Never' and (x.isdigit() and int(x) > 60)
+                                else 'color: orange' if x != 'Never' and (x.isdigit() and int(x) > 30)
                                 else 'color: green' if x != 'Never'
                                 else 'color: gray' for x in s]
                     elif s.name == 'Errors':
-                        return ['color: red' if x > 5
-                                else 'color: orange' if x > 0
+                        return ['color: red' if isinstance(x, (int, float)) and x > 5
+                                else 'color: orange' if isinstance(x, (int, float)) and x > 0
                                 else 'color: green' for x in s]
                     return [''] * len(s)
                 
@@ -1118,11 +1131,21 @@ Generated at: {now}
         # Format last success time
         if pd.notna(source.get('last_success')):
             last_success = source['last_success'].strftime("%Y-%m-%d %H:%M:%S")
-            age_minutes = source.get('age', 0)
-            if isinstance(age_minutes, str) and age_minutes == 'Never':
+            age_value = source.get('age', 0)
+            
+            if isinstance(age_value, str) and age_value == 'Never':
                 age = "Never"
-            else:
+            elif isinstance(age_value, pd.Timedelta):
+                # Convert timedelta to minutes
+                age_minutes = age_value.total_seconds() / 60
                 age = f"{int(age_minutes)} min" if age_minutes < 60 else f"{int(age_minutes/60)} hours"
+            else:
+                # Try to convert to float or int
+                try:
+                    age_minutes = float(age_value)
+                    age = f"{int(age_minutes)} min" if age_minutes < 60 else f"{int(age_minutes/60)} hours"
+                except (ValueError, TypeError):
+                    age = str(age_value)
         else:
             last_success = "Never"
             age = "N/A"
@@ -1217,6 +1240,55 @@ Generated at: {now}
     return report_path
 
 
+def update_source_health(source_name, status, last_success=None, response_time_ms=None, records=None):
+    """Update the health status of a source
+    
+    Args:
+        source_name: Name of the source
+        status: Health status (healthy, degraded, failed, etc.)
+        last_success: Last successful timestamp
+        response_time_ms: Response time in milliseconds (optional)
+        records: Number of records retrieved (optional)
+    """
+    conn = get_db_connection()
+    with conn.cursor() as cur:
+        try:
+            metadata = {}
+            if records is not None:
+                metadata["record_count"] = records
+            if response_time_ms is not None:
+                metadata["response_time_ms"] = response_time_ms
+            
+            metadata_json = json.dumps(metadata) if metadata else None
+            
+            if last_success:
+                update_query = """
+                    UPDATE data_source_health
+                    SET status = %s,
+                        last_check = NOW(),
+                        last_success = %s,
+                        metadata = %s
+                    WHERE source_name = %s
+                """
+                cur.execute(update_query, (status, last_success, metadata_json, source_name))
+            else:
+                update_query = """
+                    UPDATE data_source_health
+                    SET status = %s,
+                        last_check = NOW(),
+                        metadata = %s
+                    WHERE source_name = %s
+                """
+                cur.execute(update_query, (status, metadata_json, source_name))
+            
+            conn.commit()
+            log_message(f"Updated {source_name} health status to {status}")
+        except Exception as e:
+            conn.rollback()
+            log_message(f"Failed to update {source_name} health status: {e}")
+        finally:
+            conn.close()
+
 def update_health_status_failed(source_name, error_message, response_time_ms=None):
     """Update the health status of a source to failed
     
@@ -1296,6 +1368,64 @@ def check_all_sources():
     """Check the health of all data sources"""
     health_data = get_data_source_health()
     
+    # Connect to the database to check for recent data entries
+    conn = get_db_connection()
+    
+    try:
+        # Check Alpha Vantage and Yahoo Finance health by looking at database records
+        with conn.cursor() as cur:
+            # Check for recent records from Alpha Vantage
+            cur.execute("""
+                SELECT COUNT(*) as record_count, MAX(timestamp) as last_record
+                FROM stock_quotes
+                WHERE source = 'Alpha Vantage'
+                AND timestamp > NOW() - INTERVAL '24 hours'
+            """)
+            alpha_vantage_data = cur.fetchone()
+            
+            if alpha_vantage_data and alpha_vantage_data[0] > 0:
+                # Alpha Vantage has recent records
+                update_source_health("alpha_vantage", 
+                                    "healthy", 
+                                    alpha_vantage_data[1],
+                                    records=alpha_vantage_data[0])
+            
+            # Check for recent records from Yahoo Finance (direct)
+            cur.execute("""
+                SELECT COUNT(*) as record_count, MAX(timestamp) as last_record
+                FROM stock_quotes
+                WHERE source LIKE '%Yahoo%' AND source NOT LIKE '%Python%'
+                AND timestamp > NOW() - INTERVAL '24 hours'
+            """)
+            yahoo_data = cur.fetchone()
+            
+            if yahoo_data and yahoo_data[0] > 0:
+                # Yahoo Finance has recent records
+                update_source_health("yahoo_finance", 
+                                    "healthy", 
+                                    yahoo_data[1],
+                                    records=yahoo_data[0])
+            
+            # Check browser scrapers
+            cur.execute("""
+                SELECT COUNT(*) as record_count, MAX(timestamp) as last_record
+                FROM market_indices
+                WHERE source LIKE '%browser%'
+                AND timestamp > NOW() - INTERVAL '24 hours'
+            """)
+            browser_data = cur.fetchone()
+            
+            if browser_data and browser_data[0] > 0:
+                # Browser scrapers have recent records
+                update_source_health("slickcharts", 
+                                    "healthy", 
+                                    browser_data[1],
+                                    records=browser_data[0])
+    except Exception as e:
+        log_message(f"Error checking database for source health: {e}")
+    finally:
+        conn.close()
+
     # Check YFinance proxy
     proxy_url = os.environ.get("YFINANCE_PROXY_URL", "http://localhost:5000")
     health_endpoint = f"{proxy_url}/health"
