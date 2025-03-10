@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"github.com/tiny-ria/quotron/scheduler/internal/config"
-	"github.com/tiny-ria/quotron/scheduler/internal/jobs"
+	"github.com/we-be/tiny-ria/quotron/scheduler/internal/config"
+	"github.com/we-be/tiny-ria/quotron/scheduler/internal/jobs"
 )
 
 // Scheduler manages scheduled jobs

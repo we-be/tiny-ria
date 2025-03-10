@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tiny-ria/quotron/scheduler/internal/config"
-	"github.com/tiny-ria/quotron/scheduler/pkg/scheduler"
+	"github.com/we-be/tiny-ria/quotron/scheduler/internal/config"
+	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/scheduler"
 )
 
 func main() {

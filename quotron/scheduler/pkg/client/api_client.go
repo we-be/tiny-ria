@@ -1,5 +1,7 @@
 package client
 
+// For go mod init github.com/we-be/tiny-ria/quotron/scheduler
+
 import (
 	"context"
 	"encoding/json"

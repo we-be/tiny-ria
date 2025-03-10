@@ -1715,6 +1715,402 @@ def show_db_connection_settings():
                 st.warning("No tables found in the database.")
         conn.close()
 
+def get_service_traces(hours=24, limit=1000):
+    """Get service trace data for visualization.
+    
+    Args:
+        hours: Number of hours to look back
+        limit: Maximum number of traces to return
+    
+    Returns:
+        DataFrame of service trace data
+    """
+    conn = get_db_connection()
+    
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        # Get the trace data
+        cur.execute("""
+            SELECT 
+                trace_id,
+                parent_id,
+                name,
+                service,
+                start_time,
+                end_time,
+                duration_ms,
+                status,
+                error_message,
+                metadata
+            FROM service_traces
+            WHERE start_time > NOW() - INTERVAL '%s hours'
+            ORDER BY start_time DESC
+            LIMIT %s
+        """, (hours, limit))
+        
+        traces = cur.fetchall()
+        trace_df = pd.DataFrame(traces) if traces else pd.DataFrame()
+        
+        # Get service dependencies
+        cur.execute("""
+            SELECT 
+                source_service,
+                target_service,
+                dependency_type,
+                is_critical
+            FROM service_dependencies
+        """)
+        
+        dependencies = cur.fetchall()
+        dependency_df = pd.DataFrame(dependencies) if dependencies else pd.DataFrame()
+    
+    conn.close()
+    
+    return trace_df, dependency_df
+
+def render_service_traces():
+    """Render the service traces visualization tab."""
+    st.subheader("Service Trace Visualization")
+    
+    # Filters
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        time_range = st.selectbox(
+            "Time Range",
+            ["Last hour", "Last 6 hours", "Last 24 hours", "Last 7 days"],
+            index=2
+        )
+    
+    with col2:
+        status_filter = st.multiselect(
+            "Status",
+            ["success", "error", "timeout"],
+            default=["success", "error", "timeout"]
+        )
+    
+    with col3:
+        # Get hours based on selection
+        if time_range == "Last hour":
+            hours = 1
+        elif time_range == "Last 6 hours":
+            hours = 6
+        elif time_range == "Last 24 hours":
+            hours = 24
+        else:
+            hours = 24 * 7
+            
+        refresh = st.button("🔄 Refresh", key="refresh_traces")
+    
+    # Get trace data
+    try:
+        traces_df, dependency_df = get_service_traces(hours=hours)
+        
+        if traces_df.empty:
+            # If no data, show a mock visualization with the defined dependencies
+            st.info("No trace data available. Showing service architecture diagram based on defined dependencies.")
+            
+            # Show the service dependency diagram even if no traces
+            if not dependency_df.empty:
+                st.subheader("Service Architecture")
+                
+                # Create nodes and edges for network graph
+                nodes = set()
+                for _, row in dependency_df.iterrows():
+                    nodes.add(row['source_service'])
+                    nodes.add(row['target_service'])
+                
+                # Create a figure for the service dependency diagram
+                fig = go.Figure()
+                
+                # Add edges (connections between services)
+                for _, row in dependency_df.iterrows():
+                    source = row['source_service']
+                    target = row['target_service']
+                    dep_type = row['dependency_type']
+                    is_critical = row['is_critical']
+                    
+                    # Set line style based on dependency type and criticality
+                    line_style = dict(
+                        width=3 if is_critical else 1.5,
+                        dash='solid' if is_critical else 'dash'
+                    )
+                    
+                    # Add an annotation for the edge
+                    fig.add_annotation(
+                        x=target,  # This will be replaced in update_layout
+                        y=source,  # This will be replaced in update_layout
+                        text=dep_type,
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=2,
+                        arrowcolor='gray'
+                    )
+                
+                # Create a Sankey diagram
+                fig = px.scatter(
+                    x=[0] * len(nodes),  # This will be updated in update_layout
+                    y=range(len(nodes)),
+                    size=[20] * len(nodes),
+                    text=list(nodes),
+                    title="Service Architecture"
+                )
+                
+                # Update layout to space nodes better
+                fig.update_layout(
+                    showlegend=False,
+                    height=500,
+                    xaxis={'showticklabels': False, 'zeroline': False, 'visible': False},
+                    yaxis={'showticklabels': False, 'zeroline': False, 'visible': False}
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Explanation of what would be shown with real data
+            st.markdown("""
+            ### How service tracing works
+            
+            When real trace data becomes available, this tab will show:
+            
+            1. **Service Flow Diagram**: Visual representation of how requests flow through different services
+            2. **Timing Analysis**: How long each service takes to process requests
+            3. **Error Tracing**: Where failures occur in the service chain
+            4. **Bottleneck Identification**: Which services are slowing down the system
+            
+            To generate trace data, the system needs to be configured with tracing middleware in each service.
+            """)
+            
+            # Show an example trace visualization
+            st.subheader("Example Visualization")
+            
+            # Create mock data for the example
+            mock_services = ['scheduler', 'api-service', 'yahoo_finance_proxy', 'database']
+            mock_start_times = [
+                pd.Timestamp.now() - pd.Timedelta(seconds=5),
+                pd.Timestamp.now() - pd.Timedelta(seconds=4.5),
+                pd.Timestamp.now() - pd.Timedelta(seconds=4),
+                pd.Timestamp.now() - pd.Timedelta(seconds=3.5)
+            ]
+            mock_durations = [5000, 3500, 2000, 1000]
+            
+            # Create mock traces DataFrame
+            mock_df = pd.DataFrame({
+                'service': mock_services,
+                'start_time': mock_start_times,
+                'duration_ms': mock_durations
+            })
+            
+            # Create a Gantt chart to visualize a mock trace
+            fig = px.timeline(
+                mock_df, 
+                x_start='start_time', 
+                x_end=[t + pd.Timedelta(milliseconds=d) for t, d in zip(mock_start_times, mock_durations)],
+                y='service',
+                color='service',
+                title='Example Service Trace Timeline'
+            )
+            
+            fig.update_yaxes(autorange="reversed")
+            st.plotly_chart(fig, use_container_width=True)
+            
+        else:
+            # Apply filters
+            if status_filter:
+                traces_df = traces_df[traces_df['status'].isin(status_filter)]
+            
+            # If we have data, show the trace visualizations
+            st.markdown(f"Found **{len(traces_df)}** traces in the selected time period.")
+            
+            # Create tabs for different visualizations
+            trace_tab1, trace_tab2, trace_tab3 = st.tabs(["Service Flow", "Timeline View", "Raw Data"])
+            
+            with trace_tab1:
+                st.subheader("Service Flow Diagram")
+                
+                # Group by service to get counts
+                service_counts = traces_df['service'].value_counts().reset_index()
+                service_counts.columns = ['service', 'count']
+                
+                # Create nodes for each service
+                nodes = service_counts['service'].tolist()
+                
+                # Connect nodes based on trace parent-child relationships
+                links = []
+                for trace_id in traces_df['trace_id'].unique():
+                    trace_spans = traces_df[traces_df['trace_id'] == trace_id]
+                    
+                    # If we have parent-child relationships in the trace
+                    if not trace_spans.empty and len(trace_spans) > 1:
+                        for i in range(len(trace_spans) - 1):
+                            source = trace_spans.iloc[i]['service']
+                            target = trace_spans.iloc[i+1]['service']
+                            
+                            if source in nodes and target in nodes:
+                                links.append((source, target))
+                
+                # Count link frequencies
+                link_counts = pd.DataFrame(links, columns=['source', 'target']).groupby(['source', 'target']).size().reset_index()
+                link_counts.columns = ['source', 'target', 'value']
+                
+                # Create a Sankey diagram
+                if not link_counts.empty:
+                    # Map service names to indices for Sankey
+                    service_to_index = {service: i for i, service in enumerate(nodes)}
+                    
+                    # Create Sankey data
+                    sankey_data = dict(
+                        type='sankey',
+                        node=dict(
+                            pad=15,
+                            thickness=20,
+                            line=dict(color="black", width=0.5),
+                            label=nodes
+                        ),
+                        link=dict(
+                            source=[service_to_index[row['source']] for _, row in link_counts.iterrows()],
+                            target=[service_to_index[row['target']] for _, row in link_counts.iterrows()],
+                            value=link_counts['value'].tolist()
+                        )
+                    )
+                    
+                    # Create figure
+                    fig = go.Figure(data=[sankey_data])
+                    fig.update_layout(title_text="Service Call Flow", font_size=12)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Not enough data to show service flow. Need parent-child relationships in traces.")
+            
+            with trace_tab2:
+                st.subheader("Trace Timeline")
+                
+                # Get unique trace IDs to select from
+                trace_ids = traces_df['trace_id'].unique()
+                
+                if len(trace_ids) > 0:
+                    selected_trace = st.selectbox("Select Trace ID", trace_ids)
+                    
+                    # Filter for the selected trace
+                    trace_spans = traces_df[traces_df['trace_id'] == selected_trace]
+                    
+                    if not trace_spans.empty:
+                        # Sort by start time
+                        trace_spans = trace_spans.sort_values('start_time')
+                        
+                        # Create a Gantt chart
+                        fig = px.timeline(
+                            trace_spans, 
+                            x_start='start_time', 
+                            x_end='end_time',
+                            y='service',
+                            color='status',
+                            hover_data=['name', 'duration_ms', 'error_message'],
+                            title=f'Trace ID: {selected_trace}'
+                        )
+                        
+                        fig.update_yaxes(autorange="reversed")
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Show timing details
+                        total_duration = (trace_spans['end_time'].max() - trace_spans['start_time'].min()).total_seconds() * 1000
+                        
+                        # Create a metrics display for timing
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("Total Duration", f"{total_duration:.2f} ms")
+                        
+                        with col2:
+                            st.metric("Services Involved", len(trace_spans['service'].unique()))
+                        
+                        with col3:
+                            # Check if any errors
+                            error_count = len(trace_spans[trace_spans['status'] == 'error'])
+                            st.metric("Errors", error_count, delta=-error_count if error_count > 0 else None, delta_color="inverse")
+                        
+                        # Display span details
+                        st.subheader("Span Details")
+                        
+                        # Format the dataframe for display
+                        display_df = trace_spans[['service', 'name', 'start_time', 'duration_ms', 'status']].copy()
+                        display_df['start_time'] = display_df['start_time'].dt.strftime('%H:%M:%S.%f')
+                        
+                        # Calculate percentage of total time
+                        if total_duration > 0:
+                            display_df['% of Total'] = (display_df['duration_ms'] / total_duration * 100).round(1)
+                        
+                        st.dataframe(
+                            display_df,
+                            use_container_width=True
+                        )
+                        
+                        # Show any errors in detail
+                        errors = trace_spans[trace_spans['status'] == 'error']
+                        if not errors.empty:
+                            st.subheader("Error Details")
+                            
+                            for i, (_, error) in enumerate(errors.iterrows()):
+                                with st.expander(f"Error in {error['service']}: {error['name']}"):
+                                    st.markdown(f"**Service:** {error['service']}")
+                                    st.markdown(f"**Operation:** {error['name']}")
+                                    st.markdown(f"**Time:** {error['start_time']}")
+                                    st.markdown(f"**Error Message:**")
+                                    st.code(error['error_message'] or "No error message provided")
+                                    
+                                    # Show metadata if available
+                                    if pd.notna(error.get('metadata')) and error.get('metadata'):
+                                        try:
+                                            metadata = error['metadata']
+                                            if isinstance(metadata, str):
+                                                metadata = json.loads(metadata)
+                                            
+                                            st.markdown("**Metadata:**")
+                                            st.json(metadata)
+                                        except:
+                                            pass
+                    else:
+                        st.info("No spans found for this trace.")
+                else:
+                    st.info("No traces available.")
+            
+            with trace_tab3:
+                st.subheader("Raw Trace Data")
+                st.dataframe(traces_df, use_container_width=True)
+                
+                # Allow downloading the data as CSV
+                if not traces_df.empty:
+                    csv = traces_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download as CSV",
+                        data=csv,
+                        file_name="service_traces.csv",
+                        mime="text/csv",
+                    )
+    
+    except Exception as e:
+        st.error(f"Error loading trace data: {e}")
+        st.warning("The service traces table might not exist yet. Please run the database migration.")
+        st.code("""
+-- Run this SQL migration to create the service_traces table
+CREATE TABLE service_traces (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    trace_id VARCHAR(64) NOT NULL,
+    parent_id VARCHAR(64),
+    name VARCHAR(100) NOT NULL,
+    service VARCHAR(50) NOT NULL,
+    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'success',
+    error_message TEXT,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_service_traces_trace_id ON service_traces(trace_id);
+CREATE INDEX idx_service_traces_service ON service_traces(service);
+CREATE INDEX idx_service_traces_time ON service_traces(start_time);
+        """)
+
 def main():
     st.set_page_config(
         page_title="Quotron Dashboard",
@@ -1725,7 +2121,7 @@ def main():
     st.title("Quotron Financial Data Dashboard")
     
     # Tabs for different sections
-    tab1, tab2, tab3, tab4 = st.tabs(["Market Data", "Data Sources", "Investment Models", "Settings"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Market Data", "Data Sources", "Service Traces", "Investment Models", "Settings"])
     
     with tab1:
         col1, col2 = st.columns([1, 2])
@@ -1740,9 +2136,12 @@ def main():
         render_data_source_health()
     
     with tab3:
+        render_service_traces()
+    
+    with tab4:
         render_investment_models()
         
-    with tab4:
+    with tab5:
         show_db_connection_settings()
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiny-ria/quotron/scheduler/pkg/client"
+	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/client"
 )
 
 // StockQuoteJob fetches stock quotes for specified symbols
