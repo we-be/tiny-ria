@@ -59,10 +59,10 @@
 
 ```bash
 # Start API service for testing
-./start_api_service.sh
+./quotron.sh service start api-service
 
 # Run basic API service tests
-./test_api_service.sh
+./quotron.sh test api-service
 
 # Run integration tests
 cd tests/integration
@@ -73,7 +73,6 @@ cd tests
 python yahoo_finance_test.py
 
 # Test scheduler jobs with API service
-cd scheduler
-go run cmd/scheduler/main.go --config ../scheduler-config.json --use-api-service --api-host localhost --api-port 8080 --run-job stock_quotes
-go run cmd/scheduler/main.go --config ../scheduler-config.json --use-api-service --api-host localhost --api-port 8080 --run-job market_indices
+./quotron.sh job run stock_quotes --use-api-service --api-host localhost --api-port 8080
+./quotron.sh job run market_indices --use-api-service --api-host localhost --api-port 8080
 ```

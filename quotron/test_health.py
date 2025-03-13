@@ -134,7 +134,7 @@ def main():
             print("   - YFinance proxy is not healthy")
         if not scheduler_ok:
             print("   - Scheduler is not running")
-        print("\nTo restart all services, run: ./start_all.sh")
+        print("\nTo restart all services, run: ./quotron.sh start")
     
     return 0
 

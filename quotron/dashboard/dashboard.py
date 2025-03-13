@@ -44,19 +44,19 @@ def get_db_connection():
 SCHEDULER_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scheduler.log")
 
 def get_scheduler_status():
-    """Check if the scheduler is running.
-    
-    This is a simplified, reliable implementation that just checks for the actual running Go process.
+    """Check if the scheduler is running using the CLI tool.
     """
     try:
-        # Look specifically for the Go scheduler process, not our wrapper script
+        # Use the new CLI tool to check scheduler status
         result = subprocess.run(
-            "ps aux | grep '[g]o run cmd/scheduler/main.go'", 
-            shell=True, 
+            ["./quotron.sh", "service", "status", "scheduler"],
+            cwd="/home/hunter/Desktop/tiny-ria/quotron",
             capture_output=True, 
             text=True
         )
-        return len(result.stdout.strip()) > 0
+        # If status returns 0, service is running
+        is_running = result.returncode == 0
+        return is_running
     except Exception as e:
         log_message(f"Error checking scheduler status: {e}")
         return False
@@ -111,7 +111,7 @@ def clear_logs():
         return False
 
 def start_scheduler():
-    """Start the scheduler process directly, with environment variables from .env."""
+    """Start the scheduler using the CLI tool."""
     try:
         # Create logs directory if it doesn't exist
         logs_dir = os.path.dirname(SCHEDULER_LOG_FILE)
@@ -134,78 +134,67 @@ def start_scheduler():
             else:
                 log_message("WARNING: Alpha Vantage API key not found in .env file")
         
-        # Start the scheduler directly
+        # Start the scheduler using CLI
         log_message("Starting scheduler")
-        
-        # Get the API scraper path from environment variable or use default
-        api_scraper_path = os.environ.get("API_SCRAPER_PATH", "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/api-scraper")
-        
-        # Build the command
-        cmd = [
-            "go", "run", "cmd/scheduler/main.go",
-            "-api-scraper=" + api_scraper_path
-        ]
         
         # Start the process with redirected output
         with open(SCHEDULER_LOG_FILE, 'a') as log_file:
-            process = subprocess.Popen(
-                cmd,
-                cwd="/home/hunter/Desktop/tiny-ria/quotron/scheduler",
+            result = subprocess.run(
+                ["./quotron.sh", "service", "start", "scheduler"],
+                cwd="/home/hunter/Desktop/tiny-ria/quotron",
                 env=env,
                 stdout=log_file,
                 stderr=log_file,
-                start_new_session=True
+                text=True
             )
         
-        # Wait a moment to ensure process starts
-        time.sleep(1)
-        
         # Verify the process started
-        if process.poll() is None:  # None means still running
-            log_message("Scheduler started successfully with PID: " + str(process.pid))
-            return True
+        if result.returncode == 0:
+            # Check status to confirm
+            status_result = subprocess.run(
+                ["./quotron.sh", "service", "status", "scheduler"],
+                cwd="/home/hunter/Desktop/tiny-ria/quotron", 
+                capture_output=True,
+                text=True
+            )
+            if status_result.returncode == 0:
+                log_message("Scheduler started successfully")
+                return True
+            else:
+                log_message("Scheduler status check failed after start attempt")
+                return False
         else:
-            log_message(f"Scheduler failed to start, exit code: {process.poll()}")
+            log_message(f"Scheduler failed to start, exit code: {result.returncode}")
             return False
     except Exception as e:
         log_message(f"Error starting scheduler: {e}")
         return False
 
 def stop_scheduler():
-    """Stop the scheduler process."""
+    """Stop the scheduler process using the CLI tool."""
     try:
-        # Get the PIDs of any running scheduler processes
+        # Use the CLI tool to stop the scheduler
+        log_message("Stopping scheduler")
+        
         result = subprocess.run(
-            "ps aux | grep '[g]o run cmd/scheduler/main.go' | awk '{print $2}'", 
-            shell=True, 
-            capture_output=True, 
+            ["./quotron.sh", "service", "stop", "scheduler"],
+            cwd="/home/hunter/Desktop/tiny-ria/quotron",
+            capture_output=True,
             text=True
         )
         
-        pids = result.stdout.strip().split('\n')
-        if pids and pids[0]:
-            log_message(f"Found scheduler processes: {', '.join(pids)}")
-            
-            # Kill each process
-            for pid in pids:
-                if pid:
-                    try:
-                        subprocess.run(f"kill -9 {pid}", shell=True, check=True)
-                        log_message(f"Killed process {pid}")
-                    except subprocess.CalledProcessError as e:
-                        log_message(f"Failed to kill process {pid}: {e}")
-            
-            log_message("Scheduler stopped")
+        if result.returncode == 0:
+            log_message("Scheduler stopped successfully")
             return True
         else:
-            log_message("No scheduler processes found to stop")
+            log_message(f"Failed to stop scheduler: {result.stderr.strip()}")
             return False
     except Exception as e:
         log_message(f"Error stopping scheduler: {e}")
         return False
 
 def run_job(job_name):
-    """Run a specific job immediately."""
+    """Run a specific job immediately using the CLI tool."""
     try:
         log_message(f"Running job: {job_name}")
         
@@ -219,20 +208,15 @@ def run_job(job_name):
                         key, value = line.strip().split('=', 1)
                         env[key] = value
         
-        # Get the API scraper path
-        api_scraper_path = "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/cmd/main"
-        
-        # Build the command
+        # Build the command using the new CLI
         cmd = [
-            "go", "run", "cmd/scheduler/main.go",
-            "-api-scraper=" + api_scraper_path,
-            "-run-job=" + job_name
+            "./quotron.sh", "job", "run", job_name
         ]
         
         # Run the job and capture output
         result = subprocess.run(
             cmd,
-            cwd="/home/hunter/Desktop/tiny-ria/quotron/scheduler",
+            cwd="/home/hunter/Desktop/tiny-ria/quotron",
             env=env,
             capture_output=True,
             text=True
