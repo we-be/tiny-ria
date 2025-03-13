@@ -1,3 +1,4 @@
+// Package client provides a simple client for the health monitoring service
 package client
 
 import (
@@ -63,29 +64,14 @@ func (c *HealthClient) ReportHealth(ctx context.Context, report health.HealthRep
 // GetServiceHealth gets the health status of a specific service
 func (c *HealthClient) GetServiceHealth(ctx context.Context, sourceType, sourceName string) (*health.HealthReport, error) {
 	url := fmt.Sprintf("%s/health/%s/%s", c.ServiceURL, sourceType, sourceName)
-	
-	// Create a request with the given context
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	resp, err := c.sendGetRequest(ctx, url)
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-	
-	// Send the request
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error getting health status: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 	
-	// Check for errors
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("health service returned status code %d", resp.StatusCode)
-	}
-	
-	// Decode the response
 	var report health.HealthReport
-	err = json.NewDecoder(resp.Body).Decode(&report)
-	if err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
 		return nil, fmt.Errorf("error decoding health response: %w", err)
 	}
 	
@@ -95,29 +81,14 @@ func (c *HealthClient) GetServiceHealth(ctx context.Context, sourceType, sourceN
 // GetAllHealth gets the health status of all services
 func (c *HealthClient) GetAllHealth(ctx context.Context) ([]health.HealthReport, error) {
 	url := fmt.Sprintf("%s/health", c.ServiceURL)
-	
-	// Create a request with the given context
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	resp, err := c.sendGetRequest(ctx, url)
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-	
-	// Send the request
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error getting health statuses: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 	
-	// Check for errors
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("health service returned status code %d", resp.StatusCode)
-	}
-	
-	// Decode the response
 	var reports []health.HealthReport
-	err = json.NewDecoder(resp.Body).Decode(&reports)
-	if err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&reports); err != nil {
 		return nil, fmt.Errorf("error decoding health response: %w", err)
 	}
 	
@@ -127,31 +98,36 @@ func (c *HealthClient) GetAllHealth(ctx context.Context) ([]health.HealthReport,
 // GetSystemHealth gets the overall system health
 func (c *HealthClient) GetSystemHealth(ctx context.Context) (*health.SystemHealth, error) {
 	url := fmt.Sprintf("%s/health/system", c.ServiceURL)
+	resp, err := c.sendGetRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 	
-	// Create a request with the given context
+	var systemHealth health.SystemHealth
+	if err := json.NewDecoder(resp.Body).Decode(&systemHealth); err != nil {
+		return nil, fmt.Errorf("error decoding system health response: %w", err)
+	}
+	
+	return &systemHealth, nil
+}
+
+// Helper function to send GET requests to the health service
+func (c *HealthClient) sendGetRequest(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 	
-	// Send the request
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error getting system health: %w", err)
+		return nil, fmt.Errorf("error sending request: %w", err)
 	}
-	defer resp.Body.Close()
 	
-	// Check for errors
 	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
 		return nil, fmt.Errorf("health service returned status code %d", resp.StatusCode)
 	}
 	
-	// Decode the response
-	var systemHealth health.SystemHealth
-	err = json.NewDecoder(resp.Body).Decode(&systemHealth)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding system health response: %w", err)
-	}
-	
-	return &systemHealth, nil
+	return resp, nil
 }

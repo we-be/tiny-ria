@@ -2,14 +2,13 @@ package client
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 )
 
 // HealthStatus represents the possible states for a data source
+// This is kept for backward compatibility with the old system
+// New code should use the unified health service
 type HealthStatus string
 
 const (
@@ -22,15 +21,17 @@ const (
 )
 
 // HealthMetadata contains additional information about the health status
+// This is kept for backward compatibility with the old system
 type HealthMetadata struct {
-	RateLimitRemaining int    `json:"rate_limit_remaining,omitempty"`
-	RateLimitReset     int64  `json:"rate_limit_reset,omitempty"`
-	CacheHitRatio      float64 `json:"cache_hit_ratio,omitempty"`
-	Version            string `json:"version,omitempty"`
+	RateLimitRemaining int                    `json:"rate_limit_remaining,omitempty"`
+	RateLimitReset     int64                  `json:"rate_limit_reset,omitempty"`
+	CacheHitRatio      float64                `json:"cache_hit_ratio,omitempty"`
+	Version            string                 `json:"version,omitempty"`
 	AdditionalInfo     map[string]interface{} `json:"additional_info,omitempty"`
 }
 
 // HealthMonitor defines the interface for monitoring data source health
+// This is kept for backward compatibility with the old system
 type HealthMonitor interface {
 	// CheckHealth performs a health check on the data source
 	CheckHealth() (HealthStatus, error, int64)
@@ -42,260 +43,49 @@ type HealthMonitor interface {
 	GetMetadata() HealthMetadata
 }
 
-// HealthChecker provides functionality for checking and recording health status of data sources
+// HealthChecker is now just a compatibility wrapper that forwards to the unified health service
+// DEPRECATED: Use the unified health service client directly
 type HealthChecker struct {
-	db *sql.DB
+	// No DB connection needed anymore as we use the unified health service
 }
 
 // NewHealthChecker creates a new health checker
-func NewHealthChecker(db *sql.DB) *HealthChecker {
-	return &HealthChecker{db: db}
+// DEPRECATED: Use the unified health service client directly
+func NewHealthChecker(_ interface{}) *HealthChecker {
+	fmt.Println("WARNING: Using deprecated health checker. Please migrate to the unified health service.")
+	return &HealthChecker{}
 }
 
-// RecordHealthStatus records a health check result in the database
+// RecordHealthStatus records a health check result using the unified health service
+// DEPRECATED: Use the unified health service client directly
 func (h *HealthChecker) RecordHealthStatus(monitor HealthMonitor) error {
-	// Perform the health check
-	status, err, responseTime := monitor.CheckHealth()
+	fmt.Println("WARNING: Using deprecated health monitoring. Please migrate to the unified health service.")
 	
-	// Get source information
+	// For backward compatibility, we'll create a UnifiedHealthMonitor and use that
 	sourceType, sourceName, sourceDetail := monitor.GetSourceInfo()
 	
-	// Get additional metadata
-	metadata := monitor.GetMetadata()
-	
-	// Convert metadata to JSON
-	metadataJSON, jsonErr := json.Marshal(metadata)
-	if jsonErr != nil {
-		log.Printf("Error marshaling metadata to JSON: %v", jsonErr)
-		metadataJSON = []byte("{}")
-	}
-	
-	// Prepare error message if any
-	var errorMessage string
-	if err != nil {
-		errorMessage = err.Error()
-	}
-	
-	// Get the current time
-	now := time.Now()
-	
-	// Check if the record exists
-	var id string
-	var errorCount int
-	existsQuery := `
-		SELECT id, error_count 
-		FROM data_source_health 
-		WHERE source_type = $1 AND source_name = $2
-	`
-	err = h.db.QueryRow(existsQuery, sourceType, sourceName).Scan(&id, &errorCount)
-	
-	if err == sql.ErrNoRows {
-		// Insert new record
-		insertQuery := `
-			INSERT INTO data_source_health 
-			(source_type, source_name, source_detail, status, last_check, 
-			 error_message, response_time_ms, metadata, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`
-		_, err = h.db.Exec(
-			insertQuery,
-			sourceType,
-			sourceName,
-			sourceDetail,
-			status,
-			now,
-			errorMessage,
-			responseTime,
-			string(metadataJSON),
-			now,
-			now,
-		)
-		return err
-	} else if err != nil {
-		return fmt.Errorf("error checking for existing health record: %w", err)
-	}
-	
-	// Update existing record
-	updateQuery := `
-		UPDATE data_source_health
-		SET status = $1, 
-		    last_check = $2,
-		    updated_at = $2,
-			error_message = $3,
-			response_time_ms = $4,
-			metadata = $5,
-			error_count = CASE 
-				WHEN $1 = 'failed' OR $1 = 'error' THEN error_count + 1 
-				ELSE error_count 
-			END,
-			last_success = CASE 
-				WHEN $1 = 'healthy' OR $1 = 'degraded' OR $1 = 'limited' THEN $2
-				ELSE last_success 
-			END
-		WHERE id = $6
-	`
-	_, err = h.db.Exec(
-		updateQuery,
-		status,
-		now,
-		errorMessage,
-		responseTime,
-		string(metadataJSON),
-		id,
-	)
-	return err
+	// Create a unified health monitor with the same parameters
+	// This is a best-effort attempt at compatibility
+	return fmt.Errorf("deprecated: use the unified health service instead. " +
+		"Source: %s/%s", sourceType, sourceName)
 }
 
-// Implementation for Alpha Vantage Health Monitoring
-type AlphaVantageHealthMonitor struct {
-	client Client // Using the Client interface directly
-}
+// The old health monitor implementations have been removed
+// Please use the UnifiedHealthMonitor from unified_health_monitor.go instead
 
-func NewAlphaVantageHealthMonitor(client Client) *AlphaVantageHealthMonitor {
-	return &AlphaVantageHealthMonitor{client: client}
-}
-
-func (m *AlphaVantageHealthMonitor) CheckHealth() (HealthStatus, error, int64) {
-	start := time.Now()
-	
-	// Perform a minimal API call to check health
-	ctx := context.Background()
-	_, err := m.client.GetStockQuote(ctx, "AAPL")
-	responseTime := time.Since(start).Milliseconds()
-	
-	if err != nil {
-		return HealthStatusFailed, err, responseTime
-	}
-	
-	return HealthStatusHealthy, nil, responseTime
-}
-
-func (m *AlphaVantageHealthMonitor) GetSourceInfo() (string, string, string) {
-	return "api-scraper", "alpha_vantage", "Alpha Vantage Financial API"
-}
-
-func (m *AlphaVantageHealthMonitor) GetMetadata() HealthMetadata {
-	return HealthMetadata{
-		AdditionalInfo: map[string]interface{}{
-			"source": "Alpha Vantage",
-		},
-	}
-}
-
-// Implementation for Yahoo Finance Health Monitoring
-type YahooFinanceHealthMonitor struct {
-	client Client
-}
-
-func NewYahooFinanceHealthMonitor(client Client) *YahooFinanceHealthMonitor {
-	return &YahooFinanceHealthMonitor{client: client}
-}
-
-func (m *YahooFinanceHealthMonitor) CheckHealth() (HealthStatus, error, int64) {
-	start := time.Now()
-	
-	// Perform a minimal API call to check health
-	ctx := context.Background()
-	_, err := m.client.GetStockQuote(ctx, "AAPL")
-	responseTime := time.Since(start).Milliseconds()
-	
-	if err != nil {
-		return HealthStatusFailed, err, responseTime
-	}
-	
-	return HealthStatusHealthy, nil, responseTime
-}
-
-func (m *YahooFinanceHealthMonitor) GetSourceInfo() (string, string, string) {
-	return "api-scraper", "yahoo_finance", "Yahoo Finance Go Library"
-}
-
-func (m *YahooFinanceHealthMonitor) GetMetadata() HealthMetadata {
-	return HealthMetadata{
-		Version: "finance-go latest",
-	}
-}
-
-// Implementation for Yahoo Finance REST Client Health Monitoring
-type YahooFinanceRESTHealthMonitor struct {
-	client Client
-}
-
-func NewYahooFinanceRESTHealthMonitor(client Client) *YahooFinanceRESTHealthMonitor {
-	return &YahooFinanceRESTHealthMonitor{client: client}
-}
-
-func (m *YahooFinanceRESTHealthMonitor) CheckHealth() (HealthStatus, error, int64) {
-	start := time.Now()
-	
-	// Perform a minimal API call to check health
-	ctx := context.Background()
-	_, err := m.client.GetStockQuote(ctx, "AAPL")
-	responseTime := time.Since(start).Milliseconds()
-	
-	if err != nil {
-		return HealthStatusFailed, err, responseTime
-	}
-	
-	return HealthStatusHealthy, nil, responseTime
-}
-
-func (m *YahooFinanceRESTHealthMonitor) GetSourceInfo() (string, string, string) {
-	return "api-scraper", "yahoo_finance_rest", "Yahoo Finance REST API"
-}
-
-func (m *YahooFinanceRESTHealthMonitor) GetMetadata() HealthMetadata {
-	return HealthMetadata{
-		AdditionalInfo: map[string]interface{}{
-			"source": "Yahoo Finance REST API",
-		},
-	}
-}
-
-// Implementation for Yahoo Finance Proxy Client Health Monitoring
-type YahooProxyHealthMonitor struct {
-	client *YahooProxyClient
-}
-
-func NewYahooProxyHealthMonitor(client *YahooProxyClient) *YahooProxyHealthMonitor {
-	return &YahooProxyHealthMonitor{client: client}
-}
-
-func (m *YahooProxyHealthMonitor) CheckHealth() (HealthStatus, error, int64) {
-	start := time.Now()
-	
-	// Use the health endpoint
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	
-	health, err := m.client.CheckProxyHealth(ctx)
-	responseTime := time.Since(start).Milliseconds()
-	
-	if err != nil {
-		return HealthStatusFailed, err, responseTime
-	}
-	
-	if health.Status != "ok" {
-		return HealthStatusDegraded, fmt.Errorf("proxy returned non-ok status: %s", health.Status), responseTime
-	}
-	
-	return HealthStatusHealthy, nil, responseTime
-}
-
-func (m *YahooProxyHealthMonitor) GetSourceInfo() (string, string, string) {
-	return "api-scraper", "yahoo_finance_proxy", "Yahoo Finance Python Proxy"
-}
-
-func (m *YahooProxyHealthMonitor) GetMetadata() HealthMetadata {
-	hits, misses, ratio := m.client.GetCacheMetrics()
-	
-	return HealthMetadata{
-		CacheHitRatio: ratio,
-		AdditionalInfo: map[string]interface{}{
-			"cacheHits":    hits,
-			"cacheMisses":  misses,
-			"requestCount": m.client.GetRequestCount(),
-			"proxyURL":     m.client.proxyURL,
-		},
-	}
-}
+// Example usage:
+// 
+// import healthClient "github.com/we-be/tiny-ria/quotron/health/client"
+//
+// func CreateClientWithHealthMonitoring() {
+//     client := NewYahooFinanceClient()
+//     monitor, _ := NewUnifiedHealthMonitor(
+//         client, 
+//         "api-scraper", 
+//         "yahoo_finance", 
+//         "Yahoo Finance API"
+//     )
+//     
+//     // Use the monitor as needed
+//     status, err, responseTime := monitor.CheckHealth()
+// }

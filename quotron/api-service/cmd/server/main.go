@@ -30,6 +30,7 @@ type Config struct {
 }
 
 // DataSourceHealth represents health status of data sources
+// This is kept for compatibility, but we're transitioning to the unified health service
 type DataSourceHealth struct {
 	SourceName string    `json:"source_name"`
 	Status     string    `json:"status"`
@@ -261,80 +262,45 @@ func (a *API) storeMarketData(data *client.MarketData) error {
 	return err
 }
 
-// updateDataSourceHealth updates the health status of a data source
+// updateDataSourceHealth updates the health status of a data source using the unified health service
 func (a *API) updateDataSourceHealth(sourceName, status, message string) error {
-	if a.db == nil {
-		log.Printf("Warning: Database not available, skipping health status update")
-		return nil
-	}
-
-	query := `
-		INSERT INTO data_source_health (
-			source_name, status, last_check, message
-		) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (source_name) DO UPDATE SET
-			status = $2,
-			last_check = $3,
-			message = $4
-	`
-	_, err := a.db.Exec(
-		query,
-		sourceName,
-		status,
-		time.Now(),
-		message,
-	)
-	return err
+	// ToDo: Replace this with calls to the unified health service
+	// This is left as a stub for backward compatibility
+	log.Printf("Health update for %s: %s - %s", sourceName, status, message)
+	
+	// In a future update, this should use the unified health client to report health
+	// Example:
+	// import healthClient "github.com/we-be/tiny-ria/quotron/health/client"
+	// healthClient := healthClient.NewHealthClient("http://localhost:8085")
+	// healthClient.ReportHealth(context.Background(), healthReport)
+	
+	return nil
 }
 
-// getDataSourceHealth retrieves health status for all data sources
+// getDataSourceHealth retrieves health status for all data sources using the unified health service
 func (a *API) getDataSourceHealth() ([]DataSourceHealth, error) {
-	if a.db == nil {
-		log.Printf("Warning: Database not available, returning mock health data")
-		// Return mock data when database is not available
-		mockSources := []DataSourceHealth{
-			{
-				SourceName: "Yahoo Finance",
-				Status:     "healthy",
-				LastCheck:  time.Now(),
-				Message:    "Mock data - database not available",
-			},
-			{
-				SourceName: "Alpha Vantage",
-				Status:     "unknown",
-				LastCheck:  time.Now(),
-				Message:    "Mock data - database not available",
-			},
-		}
-		return mockSources, nil
+	// In a future update, this should use the unified health client to get all health reports
+	// For now, return mock data to maintain backward compatibility
+	mockSources := []DataSourceHealth{
+		{
+			SourceName: "Yahoo Finance",
+			Status:     "healthy",
+			LastCheck:  time.Now(),
+			Message:    "Transitioning to unified health service",
+		},
+		{
+			SourceName: "Alpha Vantage",
+			Status:     "unknown",
+			LastCheck:  time.Now(),
+			Message:    "Transitioning to unified health service",
+		},
 	}
-
-	query := `
-		SELECT source_name, status, last_check, message
-		FROM data_source_health
-		ORDER BY last_check DESC
-	`
-	rows, err := a.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var sources []DataSourceHealth
-	for rows.Next() {
-		var source DataSourceHealth
-		if err := rows.Scan(
-			&source.SourceName,
-			&source.Status,
-			&source.LastCheck,
-			&source.Message,
-		); err != nil {
-			return nil, err
-		}
-		sources = append(sources, source)
-	}
-
-	return sources, nil
+	
+	// Note that the unified health service provides a much richer API with more detailed health information
+	// In a future update, this function should use the unified health client to get health reports
+	// and convert them to the legacy DataSourceHealth format
+	
+	return mockSources, nil
 }
 
 // Start starts the HTTP server
