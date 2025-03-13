@@ -4,54 +4,75 @@ Quotron is the dedicated scraping and data ingestion pipeline within the tiny-ri
 
 ## Project Components
 
-### 1. API Scraper (Go)
+### 1. Core Shared Components
+Located in the root directory, these components provide shared functionality:
+
+#### Models
+Located in `models/`, this package provides unified data models for the entire system:
+- Centralized finance data structures used across all components
+- Schema generation for Python from Go types
+- Consistent field naming and data validation
+
+#### Providers
+Located in `providers/`, these packages offer standardized interfaces to data sources:
+- Yahoo Finance provider with multiple implementation strategies
+- Consistent interface for all data access
+- Integrated health monitoring
+
+### 2. API Scraper (Go)
 Located in `api-scraper/`, this component handles data collection from REST APIs.
 - Makes HTTP requests to financial data APIs
 - Handles rate limiting and authentication
 - Standardizes data into common formats
 
-### 2. Browser Scraper (Python)
+### 3. Browser Scraper (Python)
 Located in `browser-scraper/`, this component handles JavaScript-heavy websites.
 - Uses Playwright or Selenium for browser automation
 - Extracts data from complex UI elements
 - Handles dynamic content loading
 
-### 3. Authentication Engine (Python)
+### 4. Authentication Engine (Python)
 Located in `auth-engine/`, this component manages authentication for various services.
 - Handles login credentials and session cookies
 - Maintains authenticated sessions
 - Provides middleware for authenticated requests
 
-### 4. Dashboard (Python)
+### 5. Dashboard (Python)
 Located in `dashboard/`, this component provides visualization and monitoring.
 - Streamlit-based web interface
 - Displays market data and sources status
 - Controls for starting/stopping services
 - Health monitoring and diagnostics
 
-### 5. Ingest Pipeline (Python)
+### 6. Ingest Pipeline (Python)
 Located in `ingest-pipeline/`, this component processes raw data.
 - Validates incoming data against schemas
 - Enriches data with additional information
 - Prepares data for storage
 
-### 6. Events System (Python)
+### 7. Events System (Python)
 Located in `events/`, this component manages asynchronous communication.
 - Produces events when new data is available
 - Consumes events to trigger processing
 - Uses Kafka for reliable messaging
 
-### 7. Storage (SQL/NoSQL)
+### 8. Storage (SQL/NoSQL)
 Located in `storage/`, this component manages data persistence.
 - Stores structured data in SQL databases
 - Stores unstructured data in blob storage
 - Handles database migrations
 
-### 8. Scheduler (Go)
+### 9. Scheduler (Go)
 Located in `scheduler/`, this component manages automated jobs.
 - Schedules periodic data collection
 - Manages retries and error handling
 - Coordinates between different scrapers
+
+### 10. CLI
+Located in `cli/`, this unified command-line interface replaces multiple bash scripts:
+- Single entry point for all commands
+- Consistent interface for all operations
+- Environment management and configuration
 
 ## Getting Started
 
@@ -63,37 +84,113 @@ Located in `scheduler/`, this component manages automated jobs.
 
 ### Setup
 1. Clone the repository
-2. Set up environment variables:
-   ```
-   DB_HOST=localhost
-   DB_PORT=5432
-   DB_NAME=quotron
-   DB_USER=quotron
-   DB_PASSWORD=quotron
-   YFINANCE_PROXY_URL=http://localhost:5000
+2. Copy the example environment file and customize as needed:
+   ```bash
+   cp .env.example .env
+   nano .env  # Edit values as needed
    ```
 3. Start the required infrastructure: `docker-compose up -d`
 
 ### Running Components
 
-#### Option 1: Using the Master Startup Script
-The easiest way to start all services at once (YFinance Proxy, Scheduler, and Dashboard):
+Quotron provides a unified Go CLI for managing all services and operations:
+
 ```bash
-./start_all.sh
+./quotron COMMAND [OPTIONS]
 ```
 
-#### Option 2: Starting Components Individually
-To start just the YFinance Proxy and Scheduler:
+#### Available Commands
+
+##### Starting Services
 ```bash
-./start_services.sh
+# Start all services
+./quotron start
+
+# Start specific services
+./quotron start api dashboard
+./quotron start proxy scheduler
+
+# Start services in monitor mode (auto-restart)
+./quotron start --monitor
 ```
 
-To start just the Dashboard with all necessary environment variables:
+##### Stopping Services
 ```bash
-./restart_dashboard.sh
+# Stop all services
+./quotron stop
+
+# Stop specific services
+./quotron stop dashboard
+./quotron stop api proxy
 ```
 
-#### Option 2: Manual Startup
+##### Checking Status
+```bash
+# Check status of all services
+./quotron status
+```
+
+##### Running Tests
+```bash
+# Run all tests
+./quotron test
+
+# Run specific tests
+./quotron test api
+./quotron test integration
+
+# Test a specific job
+./quotron test job stock_quotes
+```
+
+##### Importing Data
+```bash
+# Import S&P 500 data
+./quotron import-sp500
+```
+
+##### Configuration
+```bash
+# Generate default config file
+./quotron --gen-config
+```
+
+##### Getting Help
+```bash
+./quotron help
+```
+
+#### Configuration
+
+The CLI can be configured via:
+
+1. Default values
+2. Environment variables 
+3. Config file (JSON format)
+4. Command-line flags
+
+To generate a default config file:
+```bash
+./quotron --gen-config
+```
+
+This will create a `quotron.json` file that you can edit to customize the configuration.
+
+**Example Configurations:**
+- `quotron.example.json`: Example configuration for the main CLI
+- `scheduler-config.example.json`: Example configuration for the scheduler
+
+To use these examples:
+```bash
+cp quotron.example.json quotron.json
+cp scheduler-config.example.json scheduler-config.json
+# Edit the config files to match your environment
+```
+
+#### Manual Component Usage
+
+If needed, you can still interact with individual components directly:
+
 - API Scraper: 
   ```bash
   cd api-scraper 
@@ -119,24 +216,46 @@ To start just the Dashboard with all necessary environment variables:
   ```bash
   cd scheduler
   go build -o scheduler ./cmd/scheduler/main.go
-  export ALPHA_VANTAGE_API_KEY="your_api_key"  # or "demo" for Yahoo Finance
   ./scheduler -api-scraper /full/path/to/api-scraper/api-scraper
   ```
 
 ### Troubleshooting and Health Checking
+
+#### Running Tests
+To run all tests for the service:
+```bash
+./quotron test
+```
+
+This comprehensive test suite will:
+1. Start necessary services
+2. Run API service tests
+3. Verify database connectivity
+4. Test Yahoo Finance direct connectivity
+5. Run integration tests
+6. Test scheduler jobs
+
+#### Checking Service Status
+To check the status of all services:
+```bash
+./quotron status
+```
+
+This will show:
+- Which services are running (with PIDs)
+- Whether services are responding on their ports
+- Color-coded status indicators
 
 #### Job Names
 The scheduler supports the following job names:
 - `stock_quotes`: Fetch stock quotes for configured symbols
 - `market_indices`: Fetch market indices data
 
-Use these exact names when running jobs manually from the dashboard or command line.
-
-To test job execution, use the provided testing script:
+Use these exact names when running jobs manually:
 ```bash
-./test_jobs.sh
+./quotron test job stock_quotes
+./quotron test job market_indices
 ```
-This will run both jobs once and display the results to help verify everything is working correctly.
 
 #### Health Check Tool
 To quickly verify the status of all services, run the health check tool:
@@ -146,30 +265,43 @@ python3 test_health.py
 
 This will check if the YFinance proxy and scheduler are running correctly and generate a health report.
 
+#### Environment Configuration
+Environment variables can be used to configure the CLI. You can also use a JSON configuration file:
+```bash
+./quotron --config path/to/config.json start
+```
+
+Key configurations include:
+- API endpoints and ports
+- Database connection details
+- Log file locations
+- External API keys
+
 #### Common Issues
 
-1. **Permission Denied**: Make sure the API scraper binary is built and has executable permissions:
+1. **Permission Denied**: Make sure the binary has executable permissions:
    ```bash
-   cd api-scraper
-   go build -o api-scraper ./cmd/main/main.go
-   chmod +x api-scraper
+   chmod +x quotron
    ```
 
 2. **Proxy Connection Failed**: Check if the YFinance proxy service is running:
    ```bash
-   # Use Python to check
+   ./quotron status
+   # Or use Python to check
    python3 -c "import requests; print(requests.get('http://localhost:5000/health').json())"
    ```
 
-3. **API Key Issues**: Set the Alpha Vantage API key:
-   ```bash
-   export ALPHA_VANTAGE_API_KEY="your_api_key"
+3. **API Key Issues**: Set the Alpha Vantage API key in your config file or environment:
+   ```
+   export ALPHA_VANTAGE_API_KEY=your_api_key
    ```
    For testing, you can use "demo" which will automatically use Yahoo Finance as fallback.
 
-4. **Environment Variables**: Make sure the dashboard can locate the YFinance proxy:
+4. **Service Not Starting**: Check the log files for detailed error information:
    ```bash
-   export YFINANCE_PROXY_URL=http://localhost:5000
+   tail -f /tmp/dashboard.log
+   tail -f /tmp/yfinance_proxy.log
+   tail -f /tmp/scheduler.log
    ```
 
 ## Data Source Health Monitoring
@@ -206,6 +338,14 @@ The Yahoo Finance proxy is a critical component for fetching stock data. It incl
 - REST API endpoints for quotes, market data, and health checks
 
 ## Development
+
+### Building the CLI
+```bash
+cd cli
+./build.sh
+```
+
+For more details on the CLI, see the [CLI README](cli/README.md).
 
 ### API Scraper
 ```
