@@ -32,9 +32,32 @@ wheels/
 *.dylib
 /vendor/
 
+# Executables and binary files
+/quotron
+/quotron.sh
+/cli/quotron
+/scheduler/scheduler
+/api-scraper/api-scraper
+/api-scraper/main
+/etl/etlcli
+/etl/modelcli
+
 # Environment files
 .env
 .env.local
+.env.example
+
+# Logs and temporary files
+*.log
+.*.pid
+*.pid
+/tmp/
+log/
+logs/
+
+# Configuration files - ignore local changes but include examples
+# /quotron.json         # Uncomment to ignore your local config
+# /scheduler-config.json # Uncomment to ignore your local config
 
 # IDE files
 .vscode/
