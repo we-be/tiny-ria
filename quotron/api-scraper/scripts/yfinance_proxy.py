@@ -8,6 +8,7 @@ It implements the following reliability features:
 2. A retry mechanism with exponential backoff for API calls
 3. A heartbeat system that periodically checks the proxy health
 4. A circuit breaker pattern to prevent overwhelming the Yahoo Finance API when issues occur
+5. Integrated with unified health monitoring service
 
 The server exposes the following endpoints:
 - /quote/<symbol> - Get a stock quote
@@ -20,16 +21,31 @@ import json
 import logging
 import threading
 import time
+import os
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 import random
 import functools
 
 # Flask for the API server
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request, make_response, g
 
 # Yahoo Finance API
 import yfinance as yf
+
+# Add the health module to path
+health_module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../health'))
+if health_module_path not in sys.path:
+    sys.path.append(health_module_path)
+
+# Import our unified health client
+try:
+    from client import HealthClient, HealthStatus, measure_request_time
+    health_enabled = True
+except ImportError:
+    health_enabled = False
+    logger.warning("Health client could not be imported. Health reporting will be disabled.")
 
 # Configure logging
 logging.basicConfig(
@@ -420,13 +436,66 @@ class StockDataProvider:
 # Create the stock data provider
 stock_provider = StockDataProvider()
 
-# Health check status tracking
+# Health check status tracking (for backward compatibility)
 health_check_status = {
     "status": "ok",
     "last_check": datetime.now().isoformat(),
     "consecutive_failures": 0,
     "is_healthy": True
 }
+
+# Initialize the health client
+health_client = None
+if health_enabled:
+    # Get health service URL from environment or use default
+    health_service_url = os.environ.get("HEALTH_SERVICE_URL", "http://localhost:8085")
+    health_client = HealthClient(health_service_url)
+    logger.info(f"Health client initialized with service URL: {health_service_url}")
+
+# Flask middleware for request tracking
+@app.before_request
+def before_request():
+    """Set start time for request duration tracking"""
+    g.start_time = time.time()
+
+@app.after_request
+def after_request(response):
+    """Track request duration and report health status"""
+    # Skip for health endpoint to avoid recursive reporting
+    if request.path == '/health':
+        return response
+        
+    if health_enabled and health_client:
+        # Calculate response time
+        duration_ms = int((time.time() - g.start_time) * 1000)
+        
+        # Determine status based on response code
+        status = HealthStatus.HEALTHY
+        if response.status_code >= 500:
+            status = HealthStatus.FAILED
+        elif response.status_code >= 400:
+            status = HealthStatus.DEGRADED
+            
+        # Report health asynchronously
+        def report_health():
+            try:
+                health_client.report_health(
+                    source_type="api-scraper",
+                    source_name="yahoo_finance_proxy",
+                    status=status,
+                    response_time_ms=duration_ms,
+                    metadata={
+                        "path": request.path,
+                        "method": request.method,
+                        "status_code": response.status_code
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Failed to report health: {e}")
+                
+        threading.Thread(target=report_health).start()
+        
+    return response
 
 # Set up the heartbeat system
 def heartbeat_check():
@@ -444,10 +513,30 @@ def heartbeat_check():
             if health_check_status["consecutive_failures"] >= 3:
                 health_check_status["status"] = "degraded"
                 health_check_status["is_healthy"] = False
+                # Report degraded health to unified health service
+                if health_enabled and health_client:
+                    health_client.report_health(
+                        source_type="api-scraper",
+                        source_name="yahoo_finance_proxy",
+                        status=HealthStatus.DEGRADED,
+                        error_message=str(result.get('error')),
+                        metadata={"consecutive_failures": health_check_status["consecutive_failures"]}
+                    )
         else:
             health_check_status["status"] = "ok"
             health_check_status["is_healthy"] = True
             health_check_status["consecutive_failures"] = 0
+            # Report healthy status to unified health service
+            if health_enabled and health_client:
+                health_client.report_health(
+                    source_type="api-scraper",
+                    source_name="yahoo_finance_proxy",
+                    status=HealthStatus.HEALTHY,
+                    metadata={
+                        "uptime": (datetime.now() - startup_time).total_seconds(),
+                        "cache_stats": stock_provider.cache.get_stats(),
+                    }
+                )
     
     except Exception as e:
         health_check_status["consecutive_failures"] += 1
@@ -455,6 +544,15 @@ def heartbeat_check():
         if health_check_status["consecutive_failures"] >= 3:
             health_check_status["status"] = "failed"
             health_check_status["is_healthy"] = False
+            # Report failed health to unified health service
+            if health_enabled and health_client:
+                health_client.report_health(
+                    source_type="api-scraper",
+                    source_name="yahoo_finance_proxy",
+                    status=HealthStatus.FAILED,
+                    error_message=str(e),
+                    metadata={"consecutive_failures": health_check_status["consecutive_failures"]}
+                )
     
     health_check_status["last_check"] = datetime.now().isoformat()
     
@@ -498,12 +596,27 @@ def market(index):
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
-    return jsonify({
+    health_data = {
         "status": health_check_status["status"],
         "timestamp": datetime.now().isoformat(),
         "uptime": (datetime.now() - startup_time).total_seconds(),
         "last_check": health_check_status["last_check"]
-    })
+    }
+    
+    # Add unified health status if enabled
+    if health_enabled and health_client:
+        try:
+            service_health = health_client.get_service_health("api-scraper", "yahoo_finance_proxy")
+            if service_health:
+                health_data["unified_health"] = {
+                    "status": service_health.get("status", "unknown"),
+                    "last_check": service_health.get("last_check"),
+                    "error_count": service_health.get("error_count", 0)
+                }
+        except Exception as e:
+            logger.warning(f"Failed to get unified health status: {e}")
+    
+    return jsonify(health_data)
 
 
 @app.route('/metrics', methods=['GET'])
