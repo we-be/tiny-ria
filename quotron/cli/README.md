@@ -35,6 +35,7 @@ Commands:
   start [SERVICE...]  Start services (all or specified services)
   stop [SERVICE...]   Stop services (all or specified services)
   status              Show status of all services
+  health              Check health of services
   test [TEST]         Run tests (all or specified test)
   import-sp500        Import S&P 500 data
   help                Show this help message
@@ -73,6 +74,14 @@ Stop all services:
 Check service status:
 ```bash
 ./quotron status
+```
+
+Check health of services:
+```bash
+./quotron health
+./quotron health --action system
+./quotron health --action service api-scraper/yahoo_finance
+./quotron health --format json
 ```
 
 Run tests:
@@ -121,12 +130,14 @@ The CLI manages the following services:
 - **API Service**: Go service that provides REST API endpoints
 - **Scheduler**: Go service that schedules data collection jobs
 - **Dashboard**: Python service that provides a web UI
+- **Health Service**: Go service that monitors and reports on system health
 
 ## Development
 
 To extend the CLI with new functionality:
 
-1. Add new command handlers in `cmd/main/main.go`
-2. Implement service logic in the `pkg/services` package
-3. Run `go mod tidy` to update dependencies
-4. Build with `./build.sh`
+1. Implement a new command that implements the `Command` interface in `pkg/services`
+2. Register the command in `getAvailableCommands()` in `cmd/main/main.go`
+3. Update the help text in the `usage()` function
+4. Run `go mod tidy` to update dependencies
+5. Build with `./build.sh`

@@ -82,6 +82,8 @@ def scrape_website(url):
 
 ### Using the CLI
 
+#### Using the Test Client
+
 ```bash
 # Check system health
 ./bin/test-client -cmd system
@@ -94,6 +96,24 @@ def scrape_website(url):
 
 # Report health status
 ./bin/test-client -cmd report -source "api-scraper" -name "yahoo_finance" -status "healthy"
+```
+
+#### Using the Quotron CLI
+
+The health service is now integrated with the main Quotron CLI:
+
+```bash
+# Check all service health
+./quotron health
+
+# Get system health summary
+./quotron health --action system
+
+# Check specific service health
+./quotron health --action service api-scraper/yahoo_finance
+
+# Get health status in JSON format
+./quotron health --format json
 ```
 
 ## Migrating from Old Health Monitoring
