@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	healthClient "github.com/we-be/tiny-ria/quotron/health/client"
 	"github.com/we-be/tiny-ria/quotron/health"
+	healthClient "github.com/we-be/tiny-ria/quotron/health/client"
 )
 
 // UnifiedHealthMonitor is an implementation of HealthMonitor that uses the unified health service
