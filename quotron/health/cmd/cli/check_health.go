@@ -13,7 +13,7 @@ import (
 )
 
 // Example implementation of a health check CLI command
-// This can be integrated into the main CLI tool (quotron.sh)
+// This has been integrated into the main Quotron CLI
 
 func main() {
 	// Parse command line arguments
