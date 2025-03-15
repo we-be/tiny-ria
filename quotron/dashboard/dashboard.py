@@ -49,7 +49,7 @@ def get_scheduler_status():
     try:
         # Use the new CLI tool to check scheduler status
         result = subprocess.run(
-            ["./quotron.sh", "service", "status", "scheduler"],
+            ["./quotron", "status"],
             cwd="/home/hunter/Desktop/tiny-ria/quotron",
             capture_output=True, 
             text=True
@@ -140,7 +140,7 @@ def start_scheduler():
         # Start the process with redirected output
         with open(SCHEDULER_LOG_FILE, 'a') as log_file:
             result = subprocess.run(
-                ["./quotron.sh", "service", "start", "scheduler"],
+                ["./quotron", "start", "scheduler"],
                 cwd="/home/hunter/Desktop/tiny-ria/quotron",
                 env=env,
                 stdout=log_file,
@@ -152,7 +152,7 @@ def start_scheduler():
         if result.returncode == 0:
             # Check status to confirm
             status_result = subprocess.run(
-                ["./quotron.sh", "service", "status", "scheduler"],
+                ["./quotron", "status"],
                 cwd="/home/hunter/Desktop/tiny-ria/quotron", 
                 capture_output=True,
                 text=True
@@ -177,7 +177,7 @@ def stop_scheduler():
         log_message("Stopping scheduler")
         
         result = subprocess.run(
-            ["./quotron.sh", "service", "stop", "scheduler"],
+            ["./quotron", "stop", "scheduler"],
             cwd="/home/hunter/Desktop/tiny-ria/quotron",
             capture_output=True,
             text=True
@@ -210,7 +210,7 @@ def run_job(job_name):
         
         # Build the command using the new CLI
         cmd = [
-            "./quotron.sh", "job", "run", job_name
+            "./quotron", "test", "job", job_name
         ]
         
         # Run the job and capture output
