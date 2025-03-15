@@ -1,66 +1,7 @@
-# Virtual environments
-.venv/
-venv/
-env/
+# This directory uses the top-level .gitignore file
+# See /.gitignore for all ignore patterns
 
-# Python artifacts
-__pycache__/
-*.py[cod]
-*.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Go artifacts
-*.exe
-*.dll
-*.so
-*.dylib
-/vendor/
-
-# Executables and binary files
+# Additional patterns specific to this directory:
 /quotron
 /quotron.sh
 /cli/quotron
-/scheduler/scheduler
-/api-scraper/api-scraper
-/api-scraper/main
-/etl/etlcli
-/etl/modelcli
-
-# Environment files
-.env
-.env.local
-.env.example
-
-# Logs and temporary files
-*.log
-.*.pid
-*.pid
-/tmp/
-log/
-logs/
-
-# Configuration files - ignore local changes but include examples
-# /quotron.json         # Uncomment to ignore your local config
-# /scheduler-config.json # Uncomment to ignore your local config
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*~
