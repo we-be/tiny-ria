@@ -28,6 +28,11 @@ type Config struct {
 	// Dashboard configuration
 	DashboardHost string `json:"dashboard_host"`
 	DashboardPort int    `json:"dashboard_port"`
+	
+	// Health Service configuration
+	HealthServiceHost string `json:"health_service_host"`
+	HealthServicePort int    `json:"health_service_port"`
+	HealthServiceURL  string `json:"health_service_url"`
 
 	// Paths
 	QuotronRoot        string `json:"quotron_root"`
@@ -37,16 +42,18 @@ type Config struct {
 	ETLDir             string `json:"etl_dir"`
 
 	// Log file paths
-	DashboardLogFile  string `json:"dashboard_log_file"`
-	YFinanceLogFile   string `json:"yfinance_log_file"`
-	SchedulerLogFile  string `json:"scheduler_log_file"`
-	APIServiceLogFile string `json:"api_service_log_file"`
+	DashboardLogFile    string `json:"dashboard_log_file"`
+	YFinanceLogFile     string `json:"yfinance_log_file"`
+	SchedulerLogFile    string `json:"scheduler_log_file"`
+	APIServiceLogFile   string `json:"api_service_log_file"`
+	HealthServiceLogFile string `json:"health_service_log_file"`
 
 	// PID files
 	DashboardPIDFile     string `json:"dashboard_pid_file"`
 	SchedulerPIDFile     string `json:"scheduler_pid_file"`
 	YFinanceProxyPIDFile string `json:"yfinance_proxy_pid_file"`
 	APIServicePIDFile    string `json:"api_service_pid_file"`
+	HealthServicePIDFile string `json:"health_service_pid_file"`
 
 	// External API keys
 	AlphaVantageAPIKey string `json:"alpha_vantage_api_key"`
@@ -78,6 +85,11 @@ func DefaultConfig() *Config {
 		// Dashboard configuration
 		DashboardHost: "localhost",
 		DashboardPort: 8501,
+		
+		// Health Service configuration
+		HealthServiceHost: "localhost",
+		HealthServicePort: 8085,
+		HealthServiceURL:  "http://localhost:8085",
 
 		// Paths
 		QuotronRoot:      quotronRoot,

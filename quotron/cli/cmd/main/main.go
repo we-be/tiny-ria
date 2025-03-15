@@ -25,6 +25,16 @@ var (
 	monitorMode = flag.Bool("monitor", false, "Monitor mode - watch services and restart if they fail")
 )
 
+// getAvailableCommands returns all available commands
+func getAvailableCommands(ctx context.Context) map[string]services.Command {
+	commands := make(map[string]services.Command)
+	
+	// Register built-in commands
+	commands["health"] = services.NewHealthCommand()
+	
+	return commands
+}
+
 func main() {
 	// Define command-line structure
 	flag.Usage = usage
@@ -62,10 +72,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get available commands
+	commands := getAvailableCommands(ctx)
+
 	// Parse command and execute
 	command := args[0]
 	commandArgs := args[1:]
 
+	// Check for registered commands first
+	if cmd, exists := commands[command]; exists {
+		if err := cmd.Run(commandArgs); err != nil {
+			log.Fatalf("Command failed: %v", err)
+		}
+		return
+	}
+
+	// Handle built-in commands
 	switch command {
 	case "start":
 		handleStartCommand(ctx, commandArgs)
@@ -105,6 +127,7 @@ func usage() {
 	fmt.Println("  status              Show status of all services")
 	fmt.Println("  test [TEST]         Run tests (all or specified test)")
 	fmt.Println("  import-sp500        Import S&P 500 data")
+	fmt.Println("  health              Check health of services")
 	fmt.Println("  help                Show this help message")
 	fmt.Println()
 	fmt.Println("Services:")

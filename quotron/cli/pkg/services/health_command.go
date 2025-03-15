@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -22,14 +23,28 @@ type HealthCommand struct {
 	serviceName string
 }
 
+// Command defines an interface for all CLI commands
+type Command interface {
+	Name() string
+	Description() string
+	Run(args []string) error
+}
+
 // NewHealthCommand creates a new health check command
 func NewHealthCommand() *HealthCommand {
+	// Get default URL from config
+	config := DefaultConfig()
+	defaultServiceURL := config.HealthServiceURL
+	if defaultServiceURL == "" {
+		defaultServiceURL = "http://localhost:8085"
+	}
+	
 	hc := &HealthCommand{
 		flags: flag.NewFlagSet("health", flag.ExitOnError),
 	}
 	
 	// Define flags
-	hc.flags.StringVar(&hc.serviceURL, "service-url", "http://localhost:8085", "Health service URL")
+	hc.flags.StringVar(&hc.serviceURL, "service-url", defaultServiceURL, "Health service URL")
 	hc.flags.StringVar(&hc.action, "action", "all", "Action to perform: all, get, system, or specific service")
 	hc.flags.StringVar(&hc.format, "format", "text", "Output format: text or json")
 	
@@ -119,8 +134,13 @@ func (hc *HealthCommand) showAllHealth(ctx context.Context, healthClient *client
 	fmt.Println("=== Health Status for All Services ===")
 	fmt.Printf("Found %d services\n\n", len(reports))
 	
+	// Use the health package for status formatting
 	for i, report := range reports {
-		fmt.Printf("%d. %s/%s: %s\n", i+1, report.SourceType, report.SourceName, report.Status)
+		statusLabel := report.Status
+		if report.Status == health.StatusHealthy {
+			statusLabel = report.Status
+		}
+		fmt.Printf("%d. %s/%s: %s\n", i+1, report.SourceType, report.SourceName, statusLabel)
 		if report.LastCheck.IsZero() {
 			fmt.Println("   Last Check: Never")
 		} else {
