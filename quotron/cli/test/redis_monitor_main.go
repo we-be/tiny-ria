@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	StockQuotesChannel = "quotron:queue:stock_quotes"
+	StockQuotesChannel = "quotron:stocks"
 	MarketDataChannel = "quotron:queue:market_indices"
 )
 

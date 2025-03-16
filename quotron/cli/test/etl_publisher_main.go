@@ -15,6 +15,7 @@ import (
 const (
 	// Channel names from etl_service.go - MUST match /pkg/etl/service.go
 	StockChannel = "quotron:stocks"
+	StockStream  = "quotron:stocks:stream" // New stream name
 )
 
 // StockQuote represents a single stock quote (matching ETL service struct)
@@ -91,18 +92,37 @@ func main() {
 		
 		log.Printf("Publishing stock quote (%d/%d): %s", i+1, count, string(quoteData))
 		
-		// Publish to Redis
-		result := client.Publish(ctx, StockChannel, string(quoteData))
-		if err := result.Err(); err != nil {
-			log.Fatalf("Failed to publish message: %v", err)
-		}
+		// Can publish either directly to stream or via pub/sub channel
+		useStream := true // Set to true to test direct stream publishing
 		
-		// Get the number of clients that received the message
-		receivers, err := result.Result()
-		if err != nil {
-			fmt.Printf("Failed to get publish result: %v\n", err)
+		if useStream {
+			// Publish directly to Redis Stream (new method)
+			result := client.XAdd(ctx, &redis.XAddArgs{
+				Stream: StockStream,
+				ID:     "*", // Auto-generate ID
+				Values: map[string]interface{}{
+					"data": string(quoteData),
+				},
+				MaxLen: 1000,
+			})
+			if err := result.Err(); err != nil {
+				log.Fatalf("Failed to publish message to stream: %v", err)
+			}
+			log.Printf("Message published to stream")
 		} else {
-			fmt.Printf("Message published to %d clients\n", receivers)
+			// Publish to Redis Pub/Sub (legacy method)
+			result := client.Publish(ctx, StockChannel, string(quoteData))
+			if err := result.Err(); err != nil {
+				log.Fatalf("Failed to publish message: %v", err)
+			}
+			
+			// Get the number of clients that received the message
+			receivers, err := result.Result()
+			if err != nil {
+				fmt.Printf("Failed to get publish result: %v\n", err)
+			} else {
+				fmt.Printf("Message published to %d clients\n", receivers)
+			}
 		}
 		
 		// Wait before sending next message

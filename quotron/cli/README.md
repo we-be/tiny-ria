@@ -1,6 +1,6 @@
 # Quotron CLI
 
-[![CLI:272e9f5](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%3A272e9f5&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
+[![CLI Build:830f2e8](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%20Build%3A830f2e8&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
 
 This CLI provides a unified interface for managing all Quotron services and operations.
 
@@ -21,6 +21,7 @@ This will create a `quotron` binary in the parent directory.
 
 ## Usage
 
+<!-- CLI_HELP_START -->
 ```
 Quotron - Financial data system CLI
 
@@ -37,9 +38,15 @@ Commands:
   start [SERVICE...]  Start services (all or specified services)
   stop [SERVICE...]   Stop services (all or specified services)
   status              Show status of all services
-  health              Check health of services
   test [TEST]         Run tests (all or specified test)
   import-sp500        Import S&P 500 data
+  scheduler <SUBCOMMAND>  Manage or interact with the scheduler:
+                       - jobs: List configured jobs
+                       - run-job <JOBNAME>: Run a job immediately
+                       - next-runs: Show upcoming execution times
+                       - status: Show scheduler status
+                       - help: Show detailed scheduler help
+  health              Check health of services
   help                Show this help message
 
 Services:
@@ -48,6 +55,7 @@ Services:
   api                 API service only
   dashboard           Dashboard only
   scheduler           Scheduler only
+  etl                 ETL service only
 
 Tests:
   all                 All tests (default)
@@ -55,6 +63,7 @@ Tests:
   integration         Integration tests
   job JOBNAME         Run a specific job test
 ```
+<!-- CLI_HELP_END -->
 
 ## Examples
 
