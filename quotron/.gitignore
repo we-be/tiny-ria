@@ -5,3 +5,8 @@
 /quotron
 /quotron.sh
 /cli/quotron
+cli/data/
+# Ignore all executable binaries
+cli/test/crypto_monitor
+cli/test/test_crypto_job_manual
+cli/test/test_crypto_quote

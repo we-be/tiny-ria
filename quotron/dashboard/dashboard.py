@@ -255,26 +255,50 @@ def get_latest_market_indices():
     conn.close()
     return result
 
-def get_latest_stock_quotes(limit=20):
-    """Get the latest stock quotes data."""
+def get_latest_stock_quotes(limit=20, exchange_filter=None):
+    """Get the latest stock quotes data.
+    
+    Args:
+        limit (int): Maximum number of quotes to return
+        exchange_filter (str, optional): Filter by specific exchange (e.g., 'CRYPTO')
+    """
     conn = get_db_connection()
     
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("""
-            SELECT symbol, price, change, change_percent, volume, timestamp, source
-            FROM (
-                SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
-                FROM stock_quotes
-            ) sub
-            WHERE rn = 1
-            ORDER BY ABS(change_percent) DESC
-            LIMIT %s
-        """, (limit,))
+        if exchange_filter:
+            cur.execute("""
+                SELECT symbol, price, change, change_percent, volume, timestamp, source, exchange
+                FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
+                    FROM stock_quotes
+                    WHERE exchange = %s
+                ) sub
+                WHERE rn = 1
+                ORDER BY ABS(change_percent) DESC
+                LIMIT %s
+            """, (exchange_filter, limit))
+        else:
+            cur.execute("""
+                SELECT symbol, price, change, change_percent, volume, timestamp, source, exchange
+                FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
+                    FROM stock_quotes
+                    WHERE exchange != 'CRYPTO'
+                ) sub
+                WHERE rn = 1
+                ORDER BY ABS(change_percent) DESC
+                LIMIT %s
+            """, (limit,))
+        
         data = cur.fetchall()
         result = pd.DataFrame(data) if data else pd.DataFrame()
     
     conn.close()
     return result
+
+def get_latest_crypto_quotes(limit=10):
+    """Get the latest cryptocurrency quotes data."""
+    return get_latest_stock_quotes(limit=limit, exchange_filter='CRYPTO')
 
 def get_investment_models():
     """Get all investment models."""
@@ -465,7 +489,7 @@ def render_scheduler_controls():
     # Job runner section
     st.divider()
     st.subheader("Run Individual Jobs")
-    job_options = ["market_indices", "stock_quotes"]
+    job_options = ["market_indices", "stock_quotes", "crypto_quotes"]
     col1, col2 = st.columns([3, 1])
     with col1:
         selected_job = st.selectbox("Select a job to run", job_options)
@@ -521,31 +545,62 @@ def render_market_overview():
     
     st.divider()
     
-    st.subheader("Top Movers")
+    # Create tabs for stock and crypto data
+    stock_tab, crypto_tab = st.tabs(["Stock Quotes", "Crypto Quotes"])
     
-    stocks = get_latest_stock_quotes()
-    if not stocks.empty:
-        display_cols = ['symbol', 'price', 'change', 'change_percent', 'source']
-        stocks_formatted = stocks[display_cols].copy()
+    with stock_tab:
+        st.subheader("Top Stock Movers")
         
-        # Apply formatting
-        stocks_formatted['price'] = stocks_formatted['price'].apply(lambda x: f"${float(x):.2f}")
+        stocks = get_latest_stock_quotes()
+        if not stocks.empty:
+            display_cols = ['symbol', 'price', 'change', 'change_percent', 'source']
+            stocks_formatted = stocks[display_cols].copy()
+            
+            # Apply formatting
+            stocks_formatted['price'] = stocks_formatted['price'].apply(lambda x: f"${float(x):.2f}")
+            
+            # Apply color coding for change and change_percent
+            def color_change(val):
+                try:
+                    val = float(val)
+                    color = 'green' if val >= 0 else 'red'
+                    return f'color: {color}'
+                except:
+                    return ''
+            
+            st.dataframe(
+                stocks_formatted.style.map(color_change, subset=['change', 'change_percent']),
+                use_container_width=True
+            )
+        else:
+            st.info("No stock quote data available.")
+    
+    with crypto_tab:
+        st.subheader("Cryptocurrency Market")
         
-        # Apply color coding for change and change_percent
-        def color_change(val):
-            try:
-                val = float(val)
-                color = 'green' if val >= 0 else 'red'
-                return f'color: {color}'
-            except:
-                return ''
-        
-        st.dataframe(
-            stocks_formatted.style.map(color_change, subset=['change', 'change_percent']),
-            use_container_width=True
-        )
-    else:
-        st.info("No stock quote data available.")
+        crypto = get_latest_crypto_quotes()
+        if not crypto.empty:
+            display_cols = ['symbol', 'price', 'change', 'change_percent', 'source']
+            crypto_formatted = crypto[display_cols].copy()
+            
+            # Apply formatting
+            crypto_formatted['price'] = crypto_formatted['price'].apply(lambda x: f"${float(x):.2f}")
+            
+            # Apply color coding for change and change_percent
+            def color_change(val):
+                try:
+                    val = float(val)
+                    color = 'green' if val >= 0 else 'red'
+                    return f'color: {color}'
+                except:
+                    return ''
+            
+            st.dataframe(
+                crypto_formatted.style.map(color_change, subset=['change', 'change_percent']),
+                use_container_width=True
+            )
+        else:
+            st.info("No cryptocurrency data available. Make sure the crypto job is running in the scheduler.")
 
 def render_data_source_health():
     """Render the data source health section with enhanced monitoring and visual indicators."""
