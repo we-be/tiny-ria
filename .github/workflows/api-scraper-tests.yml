@@ -61,12 +61,10 @@ jobs:
         # Create a simple run script if it doesn't exist
         if [ ! -f "api-scraper/scripts/run_proxy.sh" ]; then
           mkdir -p api-scraper/scripts
-          cat > api-scraper/scripts/run_proxy.sh << 'EOF'
-          #!/bin/bash
-          # Simple script to run the YFinance proxy server
-          PYTHON_PATH=$(which python3)
-          exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
-          EOF
+          echo '#!/bin/bash' > api-scraper/scripts/run_proxy.sh
+          echo '# Simple script to run the YFinance proxy server' >> api-scraper/scripts/run_proxy.sh
+          echo 'PYTHON_PATH=$(which python3)' >> api-scraper/scripts/run_proxy.sh
+          echo 'exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"' >> api-scraper/scripts/run_proxy.sh
           chmod +x api-scraper/scripts/run_proxy.sh
         fi
         
@@ -83,12 +81,10 @@ jobs:
         
         # Create a simple run script if it doesn't exist
         if [ ! -f "scripts/run_proxy.sh" ]; then
-          cat > scripts/run_proxy.sh << 'EOF'
-          #!/bin/bash
-          # Simple script to run the YFinance proxy server
-          PYTHON_PATH=$(which python3)
-          exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
-          EOF
+          echo '#!/bin/bash' > scripts/run_proxy.sh
+          echo '# Simple script to run the YFinance proxy server' >> scripts/run_proxy.sh
+          echo 'PYTHON_PATH=$(which python3)' >> scripts/run_proxy.sh
+          echo 'exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"' >> scripts/run_proxy.sh
           chmod +x scripts/run_proxy.sh
         fi
         
