@@ -29,8 +29,8 @@ type StockQuote struct {
 func main() {
 	// Connect to Redis
 	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
+		Addr:     getRedisAddr(),
+		Password: getRedisPassword(),
 		DB:       0,
 	})
 	
@@ -64,4 +64,23 @@ func main() {
 			quote.Timestamp.Format("15:04:05"),
 			quote.Symbol, quote.Price, quote.ChangePercent, quote.Volume, quote.Source)
 	}
+}
+// getRedisAddr returns the Redis address from environment or default
+func getRedisAddr() string {
+	host := os.Getenv("REDIS_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	
+	port := os.Getenv("REDIS_PORT")
+	if port == "" {
+		port = "6379"
+	}
+	
+	return fmt.Sprintf("%s:%s", host, port)
+}
+
+// getRedisPassword returns the Redis password from environment
+func getRedisPassword() string {
+	return os.Getenv("REDIS_PASSWORD")
 }

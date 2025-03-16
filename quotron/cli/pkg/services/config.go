@@ -68,9 +68,23 @@ type Config struct {
 
 // DefaultConfig creates a default configuration
 func DefaultConfig() *Config {
-	// Get the project root directory
-	quotronRoot := "/home/hunter/Desktop/tiny-ria/quotron"
-
+	// Get the project root directory by finding the "quotron" directory
+	// Start with the current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		// Fall back to executable path if we can't get current directory
+		ex, err := os.Executable()
+		if err != nil {
+			// Last resort, use relative path to what might be quotron directory
+			cwd = "."
+		} else {
+			cwd = filepath.Dir(ex)
+		}
+	}
+	
+	// Try to find the quotron root by walking up the directory tree
+	quotronRoot := findQuotronRoot(cwd)
+	
 	// Create default config
 	config := &Config{
 		// API Service configuration
@@ -175,4 +189,57 @@ func (c *Config) SaveToFile(filePath string) error {
 	}
 
 	return nil
+}
+
+// findQuotronRoot attempts to locate the quotron root directory by walking up the directory tree
+// from the given starting path until it finds a directory that looks like the quotron root
+func findQuotronRoot(startPath string) string {
+	// First, check environment variable
+	if envRoot := os.Getenv("QUOTRON_ROOT"); envRoot != "" {
+		if _, err := os.Stat(envRoot); err == nil {
+			return envRoot
+		}
+		// Even if the env var is invalid, try using it
+		return envRoot
+	}
+
+	// Define max depth to prevent infinite loops with symlinks
+	maxDepth := 10
+	currPath := startPath
+	
+	for i := 0; i < maxDepth; i++ {
+		// Check for markers that indicate we're in the quotron root
+		// Look for common files/directories that should be in the root
+		markersFound := 0
+		markers := []string{
+			"api-scraper",        // Check for api-scraper directory
+			"dashboard",          // Check for dashboard directory
+			"scheduler",          // Check for scheduler directory
+			"scheduler-config.json", // Check for config file
+			".env",               // Check for env file
+		}
+		
+		for _, marker := range markers {
+			if _, err := os.Stat(filepath.Join(currPath, marker)); err == nil {
+				markersFound++
+			}
+		}
+		
+		// If we found at least 3 markers, this is likely the quotron root
+		if markersFound >= 3 {
+			return currPath
+		}
+		
+		// Not found - go up one directory
+		parent := filepath.Dir(currPath)
+		if parent == currPath {
+			// We've reached the filesystem root without finding quotron
+			break
+		}
+		currPath = parent
+	}
+	
+	// If we couldn't find the root, use the current directory as a fallback
+	fmt.Println("Warning: Could not determine Quotron root directory. Using current directory.")
+	return startPath
 }
