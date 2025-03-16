@@ -82,9 +82,20 @@ stop_proxy() {
   return 0
 }
 
-# Handle stop command first
+# Handle stop command first - priority over everything else
 if [ "$1" = "stop" ]; then
+  # Always attempt to kill any running process
+  PIDS=$(pgrep -f "python.*yfinance_proxy.py")
+  if [ -n "$PIDS" ]; then
+    echo "Found running processes: $PIDS"
+    for PID in $PIDS; do
+      kill -9 "$PID" 2>/dev/null || true
+      echo "Killed process with PID $PID"
+    done
+  fi
+  # Also run the normal stop function
   stop_proxy
+  echo "All YFinance proxy processes stopped"
   exit 0
 fi
 
