@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	StockQuoteChannel = "quotron:stocks"
-	DefaultRedisAddr  = "localhost:6379"
+	StockQuoteChannel  = "quotron:stocks"
+	CryptoQuoteChannel = "quotron:crypto"
+	DefaultRedisAddr   = "localhost:6379"
 )
 
 // StockQuote represents a stock quote
@@ -76,4 +77,21 @@ func (r *RedisClient) GetSubscriberCount(ctx context.Context, channel string) (i
 	}
 	
 	return result[channel], nil
+}
+
+// PublishCryptoQuote publishes a cryptocurrency quote to Redis
+func (r *RedisClient) PublishCryptoQuote(ctx context.Context, quote *StockQuote) error {
+	// Convert to JSON
+	data, err := json.Marshal(quote)
+	if err != nil {
+		return fmt.Errorf("failed to marshal crypto quote: %w", err)
+	}
+	
+	// Publish to Redis
+	err = r.client.Publish(ctx, CryptoQuoteChannel, string(data)).Err()
+	if err != nil {
+		return fmt.Errorf("failed to publish to Redis: %w", err)
+	}
+	
+	return nil
 }

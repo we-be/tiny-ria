@@ -1,0 +1,12 @@
+# Binaries
+crypto_publisher_main
+test_crypto_quote
+*_main
+*_test
+
+# Data directories
+data/
+../data/
+
+# Generated test files
+test_crypto_job.go

@@ -123,6 +123,34 @@ func (c *APIClient) GetHealth(ctx context.Context) (bool, error) {
 	return resp.StatusCode == http.StatusOK, nil
 }
 
+// GetCryptoQuote fetches a crypto quote from the API service
+func (c *APIClient) GetCryptoQuote(ctx context.Context, symbol string) (*StockQuote, error) {
+	url := fmt.Sprintf("%s/api/crypto/%s", c.baseURL, symbol)
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned non-OK status: %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var quote StockQuote
+	if err := json.NewDecoder(resp.Body).Decode(&quote); err != nil {
+		return nil, fmt.Errorf("error decoding response: %w", err)
+	}
+
+	return &quote, nil
+}
+
 // MapExchangeToEnum maps various exchange codes to the standard enum values
 // Enum values are: NYSE, NASDAQ, AMEX, OTC, OTHER
 func MapExchangeToEnum(exchange string) string {
