@@ -9,6 +9,7 @@ It implements the following reliability features:
 3. A heartbeat system that periodically checks the proxy health
 4. A circuit breaker pattern to prevent overwhelming the Yahoo Finance API when issues occur
 5. Integrated with unified health monitoring service
+6. Proper shutdown handling via process signals
 
 The server exposes the following endpoints:
 - / - Simple web UI

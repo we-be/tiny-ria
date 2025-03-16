@@ -3,6 +3,8 @@
 Integration test script for Quotron components.
 This script tests the basic functionality of the API scraper, browser scraper,
 authentication engine, and ingest pipeline.
+
+Note: This script is automatically run by GitHub Actions when code is pushed.
 """
 
 import os
