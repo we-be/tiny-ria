@@ -155,6 +155,9 @@ func (j *StockQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) er
 		return fmt.Errorf("failed to fetch stock quote from API service: %w", err)
 	}
 	
+	// Map exchange value to valid enum
+	quote.Exchange = client.MapExchangeToEnum(quote.Exchange)
+	
 	// Convert to JSON for storage
 	jsonData, err := json.MarshalIndent(quote, "", "  ")
 	if err != nil {
@@ -241,6 +244,41 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 }
 
 // fetchQuoteYahoo fetches a stock quote for a single symbol using Yahoo Finance (legacy mode)
+// fixExchangeInJSONFile updates the exchange field in a stock quote JSON file to ensure
+// it uses a valid enum value for the database
+func fixExchangeInJSONFile(filename string) {
+	// Read the file to map the exchange
+	fileData, err := os.ReadFile(filename)
+	if err != nil {
+		log.Printf("Warning: couldn't read file to fix exchange: %v", err)
+		return
+	}
+
+	var quoteData map[string]interface{}
+	if err := json.Unmarshal(fileData, &quoteData); err != nil {
+		log.Printf("Warning: couldn't parse JSON to fix exchange: %v", err)
+		return
+	}
+
+	// Check if exchange exists and map it
+	if exchangeVal, ok := quoteData["exchange"].(string); ok {
+		// Map using our exchange mapping function
+		mappedExchange := client.MapExchangeToEnum(exchangeVal)
+		
+		// Only update if the exchange value changed
+		if mappedExchange != exchangeVal {
+			quoteData["exchange"] = mappedExchange
+			
+			// Write the updated JSON back to the file
+			if updatedData, err := json.MarshalIndent(quoteData, "", "  "); err == nil {
+				if err := os.WriteFile(filename, updatedData, 0644); err == nil {
+					log.Printf("Mapped exchange '%s' to '%s' in %s", exchangeVal, mappedExchange, filepath.Base(filename))
+				}
+			}
+		}
+	}
+}
+
 func (j *StockQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) error {
 	// Prepare command to run the API scraper with Yahoo Finance
 	args := []string{"--yahoo", "--symbol", symbol}

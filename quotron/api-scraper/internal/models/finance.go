@@ -14,6 +14,23 @@ type StockQuote struct {
 	Source        string    `json:"source"`
 }
 
+// MapExchangeToEnum maps various exchange codes to the standard enum values
+// Enum values are: NYSE, NASDAQ, AMEX, OTC, OTHER
+func MapExchangeToEnum(exchange string) string {
+	switch exchange {
+	case "NYSE":
+		return "NYSE"
+	case "NASDAQ", "NMS", "NGS", "NAS", "NCM":
+		return "NASDAQ"
+	case "AMEX", "ASE", "CBOE":
+		return "AMEX"
+	case "OTC", "OTCBB", "OTC PINK":
+		return "OTC"
+	default:
+		return "OTHER"
+	}
+}
+
 // MarketData represents overall market data
 type MarketData struct {
 	IndexName     string    `json:"indexName"`
