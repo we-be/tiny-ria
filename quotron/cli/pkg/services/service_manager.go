@@ -129,27 +129,37 @@ func (sm *ServiceManager) StopServices(services ServiceList) error {
 	}
 
 	if services.YFinanceProxy {
-		// Try stopping with daemon script first
-		daemonPath := filepath.Join(sm.config.QuotronRoot, "api-scraper", "scripts", "daemon_proxy.sh")
-		if _, statErr := os.Stat(daemonPath); os.IsNotExist(statErr) {
-			// Fall back to traditional method if daemon script not available
-			err := sm.stopService("YFinance Proxy", sm.config.YFinanceProxyPIDFile, "python.*yfinance_proxy.py")
-			if err != nil {
-				return fmt.Errorf("failed to stop YFinance Proxy: %w", err)
-			}
+		// Use the kill script for reliable termination
+		killScript := filepath.Join(sm.config.QuotronRoot, "api-scraper", "scripts", "kill_proxy.sh")
+		if _, statErr := os.Stat(killScript); os.IsNotExist(statErr) {
+			fmt.Printf("Kill script not found at %s, creating it...\n", killScript)
+			// Create a minimal kill script on the fly
+			killContent := `#!/bin/bash
+echo "Stopping all YFinance proxy processes..."
+pkill -9 -f "python.*yfinance_proxy.py" || true
+rm -f /tmp/yfinance_proxy.pid
+echo "Done"
+`
+			os.WriteFile(killScript, []byte(killContent), 0755)
+		}
+		
+		// Make sure it's executable
+		os.Chmod(killScript, 0755)
+		
+		// Run the kill script
+		fmt.Println("Forcefully stopping all YFinance Proxy processes...")
+		stopCmd := exec.Command(killScript)
+		stopCmd.Stdout = os.Stdout
+		stopCmd.Stderr = os.Stderr
+		stopCmd.Run() // Ignore errors, we want to continue regardless
+		
+		// Verify no processes are left
+		time.Sleep(1 * time.Second)
+		checkCmd := exec.Command("pgrep", "-f", "python.*yfinance_proxy.py")
+		if checkCmd.Run() == nil {
+			fmt.Println("WARNING: Some YFinance Proxy processes may still be running")
 		} else {
-			fmt.Println("Stopping YFinance Proxy using daemon script...")
-			stopCmd := exec.Command(daemonPath, "stop")
-			stopCmd.Stdout = os.Stdout
-			stopCmd.Stderr = os.Stderr
-			if err := stopCmd.Run(); err != nil {
-				fmt.Printf("Warning: Daemon script returned error: %v\n", err)
-				// Try traditional method as fallback
-				err := sm.stopService("YFinance Proxy", sm.config.YFinanceProxyPIDFile, "python.*yfinance_proxy.py")
-				if err != nil {
-					return fmt.Errorf("failed to stop YFinance Proxy: %w", err)
-				}
-			}
+			fmt.Println("All YFinance Proxy processes stopped successfully")
 		}
 	}
 
