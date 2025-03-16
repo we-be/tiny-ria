@@ -887,8 +887,9 @@ func (sm *ServiceManager) waitForService(host string, port int, timeout time.Dur
 	}
 	
 	// Timeout occurred
-	return fmt.Errorf("service not available after %s (%d connection attempts) - try running it manually with 'cd /home/hunter/Desktop/tiny-ria/quotron/api-scraper/scripts && python3 yfinance_proxy.py'", 
-		timeout, attempts)
+	scriptsDir := filepath.Join(sm.config.QuotronRoot, "api-scraper", "scripts")
+	return fmt.Errorf("service not available after %s (%d connection attempts) - try running it manually with 'cd %s && python3 yfinance_proxy.py'", 
+		timeout, attempts, scriptsDir)
 }
 
 // savePid saves a PID to a file

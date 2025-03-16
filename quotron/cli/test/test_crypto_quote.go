@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -79,7 +80,7 @@ func formatCryptoSymbol(symbol string) string {
 // fetchCryptoQuote fetches a cryptocurrency quote using Yahoo Finance
 func fetchCryptoQuote(ctx context.Context, symbol string) error {
 	// Get the api-scraper path
-	apiScraperPath := "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/api-scraper"
+	apiScraperPath := findAPIScraperPath()
 	
 	// Prepare command to run the API scraper with Yahoo Finance
 	args := []string{"--yahoo", "--symbol", symbol, "--json"}
@@ -143,8 +144,8 @@ func fetchCryptoQuote(ctx context.Context, symbol string) error {
 		
 	// Publish to Redis
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
+		Addr:     getRedisAddr(),
+		Password: getRedisPassword(),
 		DB:       0,
 	})
 	defer redisClient.Close()
@@ -177,8 +178,8 @@ func monitorRedis() {
 	
 	// Connect to Redis
 	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
+		Addr:     getRedisAddr(),
+		Password: getRedisPassword(),
 		DB:       0,
 	})
 	defer client.Close()
@@ -211,4 +212,66 @@ func monitorRedis() {
 			quote.Timestamp.Format("15:04:05"),
 			quote.Symbol, quote.Price, quote.ChangePercent, quote.Volume, quote.Source)
 	}
+}
+// findAPIScraperPath attempts to locate the api-scraper binary
+func findAPIScraperPath() string {
+	// First check environment variable
+	if envPath := os.Getenv("API_SCRAPER_PATH"); envPath \!= "" {
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath
+		}
+		// Even if invalid, try using it
+		return envPath
+	}
+
+	// Define possible locations to check
+	possiblePaths := []string{
+		"../api-scraper/api-scraper",                        // Relative to test directory
+		"../../api-scraper/api-scraper",                     // Relative from deeper directory
+		"/home/hunter/Desktop/tiny-ria/quotron/api-scraper/api-scraper", // Original hardcoded path (fallback)
+	}
+
+	// Find executable directory
+	execDir, err := os.Executable()
+	if err == nil {
+		// Add path relative to executable
+		baseDir := filepath.Dir(filepath.Dir(execDir)) // Go up two levels
+		possiblePaths = append(possiblePaths, filepath.Join(baseDir, "api-scraper", "api-scraper"))
+	}
+
+	// Check for quotron root environment variable
+	if quotronRoot := os.Getenv("QUOTRON_ROOT"); quotronRoot \!= "" {
+		possiblePaths = append(possiblePaths, filepath.Join(quotronRoot, "api-scraper", "api-scraper"))
+	}
+
+	// Try each possible path
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	// If all else fails, return a reasonable default and let it fail if necessary
+	fmt.Println("Warning: Could not find api-scraper. Using default path.")
+	return "api-scraper/api-scraper"
+}
+
+// getRedisAddr returns the Redis address from environment or default
+func getRedisAddr() string {
+	host := os.Getenv("REDIS_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	
+	port := os.Getenv("REDIS_PORT")
+	if port == "" {
+		port = "6379"
+	}
+	
+	return fmt.Sprintf("%s:%s", host, port)
+}
+
+// getRedisPassword returns the Redis password from environment
+func getRedisPassword() string {
+	return os.Getenv("REDIS_PASSWORD")
 }
