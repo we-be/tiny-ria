@@ -37,12 +37,12 @@ Located in `auth-engine/`, this component manages authentication for various ser
 - Maintains authenticated sessions
 - Provides middleware for authenticated requests
 
-### 5. Dashboard (Python)
-Located in `dashboard/`, this component provides visualization and monitoring.
-- Streamlit-based web interface
-- Displays market data and sources status
-- Controls for starting/stopping services
-- Health monitoring and diagnostics
+### 5. Configuration System
+Located throughout the project, configuration is managed through:
+- Environment variables
+- JSON configuration files
+- Command line flags
+- Default values with smart detection of project root
 
 ### 6. Ingest Pipeline (Python)
 Located in `ingest-pipeline/`, this component processes raw data.
@@ -107,7 +107,7 @@ Quotron provides a unified Go CLI for managing all services and operations:
 ./quotron start
 
 # Start specific services
-./quotron start api dashboard
+./quotron start api      # API service with integrated dashboard
 ./quotron start proxy scheduler
 
 # Start services in monitor mode (auto-restart)
@@ -120,8 +120,8 @@ Quotron provides a unified Go CLI for managing all services and operations:
 ./quotron stop
 
 # Stop specific services
-./quotron stop dashboard
-./quotron stop api proxy
+./quotron stop api       # Stops API service with integrated dashboard
+./quotron stop proxy
 ```
 
 ##### Checking Status
@@ -169,6 +169,17 @@ The CLI can be configured via:
 3. Config file (JSON format)
 4. Command-line flags
 
+##### Configuration System
+
+The configuration system provides a unified approach to configuring all services:
+
+- **Automatic Project Root Detection**: Locates the quotron root directory automatically
+- **Environment Variable Support**: Override settings using environment variables
+- **JSON Configuration**: Detailed configuration via JSON files
+- **Command-line Flags**: Quick overrides for specific settings
+- **Service-specific Configs**: Each service can have its own configuration file
+- **Centralized Settings**: Core settings like database connection details are shared
+
 To generate a default config file:
 ```bash
 ./quotron --gen-config
@@ -186,6 +197,19 @@ cp quotron.example.json quotron.json
 cp scheduler-config.example.json scheduler-config.json
 # Edit the config files to match your environment
 ```
+
+##### Key Configuration Settings
+
+The following are key settings that can be configured:
+
+- **API Service**: Host, port, and data source settings
+- **Database**: Connection details for PostgreSQL
+- **Redis**: Connection details for Redis cache
+- **YFinance Proxy**: Host, port, and URL settings
+- **Paths**: Locations of core components and files
+- **Log Files**: Paths to log files for each service
+- **PID Files**: Paths to process ID files for service management
+- **External API Keys**: API keys for third-party services
 
 #### Manual Component Usage
 
@@ -207,10 +231,12 @@ If needed, you can still interact with individual components directly:
   cd browser-scraper/playwright 
   python src/scraper.py
   ```
-- Dashboard: 
+- Dashboard (now integrated into API service): 
   ```bash
-  cd dashboard 
-  python dashboard.py
+  cd api-service
+  go build -o api-service ./cmd/server
+  ./api-service --port=8080
+  # Dashboard UI available at http://localhost:8501
   ```
 - Scheduler: 
   ```bash
