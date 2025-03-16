@@ -951,10 +951,10 @@ func (sm *ServiceManager) startETLService(ctx context.Context) error {
 	redisAddr := fmt.Sprintf("%s:%d", sm.config.RedisHost, sm.config.RedisPort)
 	
 	// Construct database connection string
-	dbConnStr := fmt.Sprintf(
-		"host=%s port=%d dbname=%s user=%s password=%s sslmode=disable",
-		sm.config.DBHost, sm.config.DBPort, sm.config.DBName, sm.config.DBUser, sm.config.DBPassword,
-	)
+//	dbConnStr := fmt.Sprintf(
+//		"host=%s port=%d dbname=%s user=%s password=%s sslmode=disable",
+//		sm.config.DBHost, sm.config.DBPort, sm.config.DBName, sm.config.DBUser, sm.config.DBPassword,
+//	)
 	
 	// Start the ETL service
 	fmt.Println("Starting ETL service...")
