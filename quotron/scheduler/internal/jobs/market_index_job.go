@@ -180,7 +180,7 @@ func (j *MarketIndexJob) fetchMarketDataFromAPI(ctx context.Context, index strin
 			log.Printf("Saved output to %s", filename)
 			
 			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "indices", filename, "--source", "api-service", "--allow-old-data")
+			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "indices", filename, "--source", "api-scraper", "--allow-old-data")
 			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
 			if ingestErr != nil {
 				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)

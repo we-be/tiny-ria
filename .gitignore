@@ -85,8 +85,10 @@ quotron/browser-scraper/output/
 # Streamlit specific
 .streamlit/
 
-# Scheduler runtime files
+# Scheduler and service runtime files
 quotron/dashboard/scheduler_heartbeat
+quotron/scheduler/scheduler_heartbeat
+quotron/*/run_*.sh
 
 # Agent context
 context.txt

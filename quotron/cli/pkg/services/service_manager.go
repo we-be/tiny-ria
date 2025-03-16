@@ -183,8 +183,20 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 	status.APIService = sm.checkServiceRunning(sm.config.APIServicePIDFile, "api-service",
 		sm.config.APIHost, sm.config.APIPort)
 
-	// Check Scheduler
-	status.Scheduler = sm.checkServiceRunning(sm.config.SchedulerPIDFile, "scheduler", "", 0)
+	// Check Scheduler - Check PID file first, then look for process
+	status.Scheduler = false
+	
+	// First try direct PID check
+	pid, err := sm.readPid(sm.config.SchedulerPIDFile)
+	if err == nil && pid > 0 && isPidRunning(pid) {
+		status.Scheduler = true
+	} else {
+		// If PID check fails, check for any scheduler process
+		cmd := exec.Command("pgrep", "-f", "scheduler")
+		if cmd.Run() == nil {
+			status.Scheduler = true
+		}
+	}
 
 	// Check Dashboard
 	status.Dashboard = sm.checkServiceRunning(sm.config.DashboardPIDFile, "python.*dashboard.py",
@@ -379,17 +391,18 @@ echo $! > %s
 	return nil
 }
 
-// startScheduler starts the scheduler
+// startScheduler starts the scheduler directly without shell scripts
 func (sm *ServiceManager) startScheduler(ctx context.Context) error {
-	// Check if already running
-	if sm.checkServiceRunning(sm.config.SchedulerPIDFile, "scheduler", "", 0) {
-		fmt.Println("Scheduler is already running")
-		return nil
-	}
-
+	// First kill any existing processes
+	exec.Command("pkill", "-f", "scheduler").Run()
+	
+	// Remove any stale PID files
+	os.Remove(sm.config.SchedulerPIDFile)
+	
 	// Build scheduler if needed
 	schedulerDir := sm.config.SchedulerPath
 	schedulerBin := filepath.Join(schedulerDir, "scheduler")
+	configFile := filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
 
 	// Check if binary exists and is executable
 	_, err := os.Stat(schedulerBin)
@@ -397,7 +410,7 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 		fmt.Println("Building Scheduler...")
 
 		// Build the service
-		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "scheduler", "./cmd/scheduler/main.go")
+		buildCmd := exec.Command("go", "build", "-o", "scheduler", "./cmd/scheduler/main.go")
 		buildCmd.Dir = schedulerDir
 		buildOutput, err := buildCmd.CombinedOutput()
 		if err != nil {
@@ -412,98 +425,40 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 		}
 	}
 
-	// Check if API service is running to determine if we should use API service mode
-	useAPIService := sm.checkServiceRunning("", "",
-		sm.config.APIHost, sm.config.APIPort)
-
-	// Ensure API scraper is built
-	apiScraperBin := sm.config.APIScraperPath
-	if !useAPIService {
-		// Only need to check API scraper if not using API service
-		_, err := os.Stat(apiScraperBin)
-		if err != nil || !isExecutable(apiScraperBin) {
-			fmt.Println("Building API scraper...")
-			apiScraperDir := filepath.Join(sm.config.QuotronRoot, "api-scraper")
-			buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "api-scraper", "./cmd/main/main.go")
-			buildCmd.Dir = apiScraperDir
-			buildOutput, err := buildCmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("failed to build API scraper: %w, output: %s", err, buildOutput)
-			}
-			fmt.Println("API scraper built successfully")
-
-			// Make executable
-			err = os.Chmod(apiScraperBin, 0755)
-			if err != nil {
-				return fmt.Errorf("failed to make API scraper executable: %w", err)
-			}
-		}
-	}
-
-	// Prepare command
-	args := []string{}
-
-	// Add config file if available
-	configFile := filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
-	if _, err := os.Stat(configFile); err == nil {
-		args = append(args, "--config", configFile)
-	}
-
-	// Set API service mode if available
-	if useAPIService {
-		args = append(args, "--use-api-service",
-			"--api-host", sm.config.APIHost,
-			"--api-port", strconv.Itoa(sm.config.APIPort))
-	} else {
-		// Use API scraper directly
-		args = append(args, "--api-scraper", apiScraperBin)
-	}
-
-	// Set API key if available
-	if sm.config.AlphaVantageAPIKey != "" {
-		os.Setenv("ALPHA_VANTAGE_API_KEY", sm.config.AlphaVantageAPIKey)
-	}
-
-	cmd := exec.CommandContext(ctx, schedulerBin, args...)
-
-	// Set working directory
+	// Start the scheduler directly
+	fmt.Println("Starting Scheduler...")
+	
+	// Create a command that uses nohup
+	cmd := exec.Command("nohup", schedulerBin, "--config", configFile)
 	cmd.Dir = schedulerDir
-
-	// Redirect output to log file
+	
+	// Set up log redirection
 	logFile, err := os.OpenFile(sm.config.SchedulerLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 	defer logFile.Close()
-
+	
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-
+	
 	// Start the process
-	fmt.Println("Starting Scheduler...")
-	err = cmd.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start process: %w", err)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
-
+	
 	// Save PID
-	err = sm.savePid(sm.config.SchedulerPIDFile, cmd.Process.Pid)
+	pid := cmd.Process.Pid
+	err = sm.savePid(sm.config.SchedulerPIDFile, pid)
 	if err != nil {
-		return fmt.Errorf("failed to save PID: %w", err)
+		fmt.Printf("Warning: Failed to save PID file: %v\n", err)
+		// Not fatal
 	}
+	
+	// Detach process (prevent Go from waiting for it)
+	cmd.Process.Release()
 
-	// Add to global PID list for cleanup
-	addPid(cmd.Process.Pid)
-
-	// Wait a bit to make sure scheduler started properly
-	time.Sleep(3 * time.Second)
-
-	// Check if process is still running
-	if !isPidRunning(cmd.Process.Pid) {
-		return fmt.Errorf("scheduler failed to start, check logs at %s", sm.config.SchedulerLogFile)
-	}
-
-	fmt.Printf("Scheduler started successfully with PID %d\n", cmd.Process.Pid)
+	fmt.Printf("Scheduler started successfully with PID %d\n", pid)
 	return nil
 }
 
@@ -665,12 +620,21 @@ func (sm *ServiceManager) stopService(name, pidFile, pattern string) error {
 
 // checkServiceRunning checks if a service is running
 func (sm *ServiceManager) checkServiceRunning(pidFile, pattern string, host string, port int) bool {
+	// Check if a process with a specific pattern is running
+	isProcessRunning := func(pat string) bool {
+		if pat == "" {
+			return false
+		}
+		cmd := exec.Command("bash", "-c", fmt.Sprintf("pgrep -f '%s'", pat))
+		return cmd.Run() == nil
+	}
+	
 	// Check by PID file first
 	if pidFile != "" {
 		pid, err := sm.readPid(pidFile)
 		if err == nil && pid > 0 {
 			if isPidRunning(pid) {
-				// If host and port are provided, check if service is responding
+				// If host and port are provided, also check if service is responding
 				if host != "" && port > 0 {
 					if sm.checkServiceResponding(host, port) {
 						return true
@@ -683,15 +647,12 @@ func (sm *ServiceManager) checkServiceRunning(pidFile, pattern string, host stri
 	}
 
 	// Check by pattern if provided
-	if pattern != "" {
-		cmd := exec.Command("bash", "-c", fmt.Sprintf("pgrep -f '%s'", pattern))
-		if err := cmd.Run(); err == nil {
-			// If host and port are provided, check if service is responding
-			if host != "" && port > 0 {
-				return sm.checkServiceResponding(host, port)
-			}
-			return true
+	if pattern != "" && isProcessRunning(pattern) {
+		// If host and port are provided, also check if service is responding
+		if host != "" && port > 0 {
+			return sm.checkServiceResponding(host, port)
 		}
+		return true
 	}
 
 	// If no PID file or pattern, just check if service is responding

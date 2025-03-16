@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -143,10 +144,18 @@ func (s *Scheduler) Start() error {
 		log.Printf("Scheduled job '%s' with cron expression '%s'", jobName, jobSchedule.Cron)
 	}
 
+	// Add heartbeat update job (runs every minute)
+	s.cron.AddFunc("* * * * *", func() {
+		updateHeartbeatFile()
+	})
+	
 	// Start the cron scheduler
 	s.cron.Start()
 	s.isRunning = true
 	log.Println("Scheduler started")
+	
+	// Create initial heartbeat file
+	updateHeartbeatFile()
 
 	return nil
 }
@@ -225,7 +234,23 @@ func (s *Scheduler) RunJobNow(jobName string) error {
 		} else {
 			log.Printf("Manual job '%s' completed successfully in %v", job.Name(), elapsed)
 		}
+		
+		// Update heartbeat after job execution
+		updateHeartbeatFile()
 	}()
 
 	return nil
+}
+
+// updateHeartbeatFile creates or updates the scheduler heartbeat file
+// This file is used by the CLI to detect if the scheduler is still active
+func updateHeartbeatFile() {
+	heartbeatFile := "scheduler_heartbeat"
+	
+	// Create or update the heartbeat file
+	currentTime := []byte(time.Now().Format(time.RFC3339))
+	err := os.WriteFile(heartbeatFile, currentTime, 0644)
+	if err != nil {
+		log.Printf("Warning: could not update heartbeat file: %v", err)
+	}
 }
