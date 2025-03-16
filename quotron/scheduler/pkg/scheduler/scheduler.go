@@ -89,6 +89,18 @@ func (s *Scheduler) RegisterDefaultJobs(cfg *config.Config) error {
 	if err := s.RegisterJob(marketIndexJob); err != nil {
 		return err
 	}
+	
+	// Crypto quotes job
+	cryptoQuoteJob := jobs.NewCryptoQuoteJob(cfg.ApiScraper, true)
+	
+	// Configure to use API service if enabled
+	if cfg.UseAPIService {
+		cryptoQuoteJob.WithAPIService(cfg.ApiHost, cfg.ApiPort)
+	}
+	
+	if err := s.RegisterJob(cryptoQuoteJob); err != nil {
+		return err
+	}
 
 	return nil
 }

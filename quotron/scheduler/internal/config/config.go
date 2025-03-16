@@ -127,6 +127,14 @@ func DefaultConfig() *SchedulerConfig {
 					"indices": "SPY,QQQ,DIA", // ETFs that track major indices, more likely to be available
 				},
 			},
+			"crypto_quotes": {
+				Cron:        "*/15 * * * *", // Every 15 minutes
+				Enabled:     true,
+				Description: "Fetch cryptocurrency quotes for tracked symbols",
+				Parameters: map[string]string{
+					"symbols": "BTC-USD,ETH-USD,SOL-USD,DOGE-USD,XRP-USD",
+				},
+			},
 		},
 	}
 }
