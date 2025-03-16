@@ -126,11 +126,18 @@ This will create a `quotron.json` file that you can edit to customize the config
 
 The CLI manages the following services:
 
-- **YFinance Proxy**: Python service that interfaces with Yahoo Finance
-- **API Service**: Go service that provides REST API endpoints
+- **YFinance Proxy**: Python service that interfaces with Yahoo Finance API
+- **API Service**: Go service that provides REST API endpoints with smart failover between data sources
 - **Scheduler**: Go service that schedules data collection jobs
 - **Dashboard**: Python service that provides a web UI
 - **Health Service**: Go service that monitors and reports on system health
+
+The services have the following dependencies:
+- API Service requires YFinance Proxy (automatically starts it if needed)
+- Dashboard typically requires API Service (automatically starts it if needed)
+- Scheduler can work with either API Service or direct data sources 
+
+When starting services with `quotron start`, the CLI automatically resolves these dependencies, ensuring proper service startup order.
 
 ## Development
 
