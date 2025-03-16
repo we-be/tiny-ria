@@ -12,18 +12,22 @@ go build -o quotron ./cmd/main
 echo "Installing to ../quotron binary..."
 cp quotron ..
 
-# Get current git commit hash
-COMMIT_HASH=$(git rev-parse --short HEAD)
+# Update README only if we're in a CI environment or if UPDATE_README=1
+# This ensures the badge is only updated during CI builds or when explicitly requested
+# To manually update the README: UPDATE_README=1 ./build.sh
+if [ -n "$CI" ] || [ "$UPDATE_README" = "1" ]; then
+  # Get current git commit hash
+  COMMIT_HASH=$(git rev-parse --short HEAD)
 
-# Update README.md with current CLI help output and badge
-if [ -f "README.md" ]; then
-  echo "Updating README.md..."
-  
-  # Get current CLI help output
-  CLI_HELP=$(./quotron help)
-  
-  # Create temporary file with updated content
-  cat > README.md.new << EOF
+  # Update README.md with current CLI help output and badge
+  if [ -f "README.md" ]; then
+    echo "Updating README.md..."
+    
+    # Get current CLI help output
+    CLI_HELP=$(./quotron help)
+    
+    # Create temporary file with updated content
+    cat > README.md.new << EOF
 # Quotron CLI
 
 [![CLI Build:${COMMIT_HASH}](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%20Build%3A${COMMIT_HASH}&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
@@ -152,6 +156,7 @@ EOF
   # Replace the original README with the updated one
   mv README.md.new README.md
   echo "README.md updated with current CLI help and commit hash ${COMMIT_HASH}"
+  fi
 fi
 
 echo "Build completed successfully!"
