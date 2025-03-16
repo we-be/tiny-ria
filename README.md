@@ -6,14 +6,50 @@ A modular financial data scraping, analysis, and trading system.
 ![Yahoo Finance Tests](https://github.com/we-be/tiny-ria/actions/workflows/yahoo-finance-tests.yml/badge.svg)
 ![API Scraper Tests](https://github.com/we-be/tiny-ria/actions/workflows/api-scraper-tests.yml/badge.svg)
 
-## Components
+## Quick Start
 
-- **Quotron**: Financial data scraping and ingestion pipeline
-  - API Scraper (Go): Connects to financial APIs (Alpha Vantage implemented)
-  - Browser Scraper (Python/Playwright): Handles JS-heavy websites
-  - Auth Engine: Manages authentication for data sources
-  - Ingest Pipeline: Validates and normalizes financial data
-  - Events System: Distributes data through the system
+```bash
+# Clone the repo
+git clone https://github.com/we-be/tiny-ria.git
+cd tiny-ria
+
+# Download the latest CLI release
+curl -L -o quotron "$(curl -s https://api.github.com/repos/we-be/tiny-ria/releases/latest | grep -o 'https://github.com/we-be/tiny-ria/releases/download/[^/]*/.*linux')"
+chmod +x quotron
+
+# Start the YFinance proxy (no API key required)
+./quotron start yfinance-proxy
+
+# Fetch stock data
+cd quotron/api-scraper
+go build -o api-scraper ./cmd/main/main.go
+./api-scraper --yahoo --symbol AAPL
+```
+
+## Architecture
+
+**Quotron** is a modular financial data system with the following key components:
+
+- **CLI** (Go): Unified interface for managing all services and operations
+- **API Scraper** (Go): Fetches data from financial APIs with automatic failover
+  - Alpha Vantage provider for authentic market data
+  - Yahoo Finance provider as a free alternative with higher rate limits
+- **Browser Scraper** (Python/Playwright): Extracts data from JS-heavy websites
+- **API Service** (Go): Middleware layer that provides a standardized API interface
+- **Storage** (PostgreSQL): Persists financial data for historical analysis
+- **Scheduler** (Go): Orchestrates recurring data collection tasks
+- **Health** (Go): Monitors and reports on the health of all services
+
+The system is designed with resilience in mind - components can operate independently and gracefully degrade when dependencies are unavailable.
+
+### Data Flow
+
+1. **Collection**: CLI triggers data collection via Scheduler or direct commands
+2. **Acquisition**: API Scraper fetches financial data with automatic source failover
+3. **Processing**: Data undergoes validation, normalization, and enrichment
+4. **Storage**: Processed data is persisted to PostgreSQL for historical analysis
+5. **Access**: Applications retrieve data through the API Service's unified interface
+6. **Monitoring**: Health component continuously tracks service status and data quality
 
 ## Development
 
