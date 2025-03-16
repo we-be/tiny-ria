@@ -290,12 +290,12 @@ func (sm *ServiceManager) startYFinanceProxy(ctx context.Context) error {
 	return nil
 }
 
-// startAPIService starts the API service
+
+// startAPIService starts the API service with improved persistence
 func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 	// Check if already running
-	if sm.checkServiceRunning(sm.config.APIServicePIDFile, "api-service",
-		sm.config.APIHost, sm.config.APIPort) {
-		fmt.Println("API Service is already running")
+	if sm.checkServiceResponding(sm.config.APIHost, sm.config.APIPort) {
+		fmt.Println("API Service is already running and responding")
 		return nil
 	}
 
@@ -318,18 +318,8 @@ func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 	if err != nil || !isExecutable(apiServiceBin) {
 		fmt.Println("Building API service...")
 
-		// Ensure directories exist
-		err := os.MkdirAll(filepath.Join(apiServiceDir, "cmd", "server"), 0755)
-		if err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
-		}
-		err = os.MkdirAll(filepath.Join(apiServiceDir, "pkg", "client"), 0755)
-		if err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
-		}
-
-		// Build the service
-		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "api-service", "./cmd/server")
+		// Build the service with main package
+		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "api-service", "./cmd/main")
 		buildCmd.Dir = apiServiceDir
 		buildOutput, err := buildCmd.CombinedOutput()
 		if err != nil {
@@ -338,40 +328,38 @@ func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 		fmt.Println("API service built successfully")
 	}
 
-	// Prepare command
-	cmd := exec.CommandContext(ctx, apiServiceBin,
-		"--port", strconv.Itoa(sm.config.APIPort),
-		"--yahoo-host", sm.config.YFinanceProxyHost,
-		"--yahoo-port", strconv.Itoa(sm.config.YFinanceProxyPort))
-
-	// Set working directory
-	cmd.Dir = apiServiceDir
-
-	// Redirect output to log file
-	logFile, err := os.OpenFile(sm.config.APIServiceLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	// Create a script to run the service with nohup
+	scriptContent := `#!/bin/bash
+cd "$(dirname "$0")"
+nohup ./api-service \
+  --port=%d \
+  --yahoo-host=%s \
+  --yahoo-port=%d \
+  --health=false \
+  >> %s 2>&1 &
+echo $! > %s
+`
+	scriptPath := filepath.Join(apiServiceDir, "run_api.sh")
+	scriptContent = fmt.Sprintf(scriptContent, 
+		sm.config.APIPort, 
+		sm.config.YFinanceProxyHost, 
+		sm.config.YFinanceProxyPort,
+		sm.config.APIServiceLogFile,
+		sm.config.APIServicePIDFile)
+	
+	err = os.WriteFile(scriptPath, []byte(scriptContent), 0755)
 	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
+		return fmt.Errorf("failed to create script: %w", err)
 	}
-	defer logFile.Close()
 
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-
-	// Start the process
+	// Start the process using the script
 	fmt.Println("Starting API service...")
-	err = cmd.Start()
+	cmd := exec.CommandContext(context.Background(), scriptPath)
+	cmd.Dir = apiServiceDir
+	err = cmd.Run()
 	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
-
-	// Save PID
-	err = sm.savePid(sm.config.APIServicePIDFile, cmd.Process.Pid)
-	if err != nil {
-		return fmt.Errorf("failed to save PID: %w", err)
-	}
-
-	// Add to global PID list for cleanup
-	addPid(cmd.Process.Pid)
 
 	// Wait for service to be available
 	err = sm.waitForService(sm.config.APIHost, sm.config.APIPort, 30*time.Second)
@@ -379,7 +367,15 @@ func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 		return fmt.Errorf("service failed to start: %w", err)
 	}
 
-	fmt.Printf("API service started successfully with PID %d\n", cmd.Process.Pid)
+	// Read the PID from the file
+	pid, err := sm.readPid(sm.config.APIServicePIDFile)
+	if err != nil {
+		fmt.Printf("Warning: Could not read PID file: %v\n", err)
+		// Not fatal, continue
+	} else {
+		fmt.Printf("API service started successfully with PID %d\n", pid)
+	}
+	
 	return nil
 }
 

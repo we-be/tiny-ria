@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -712,39 +712,58 @@ func (a *API) Start() error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start server in a goroutine
+	// Initialize a channel to signal when server is stopped
+	serverStopped := make(chan struct{})
+	
+	// Report service startup to health service
+	if a.config.HealthEnabled {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		err := a.healthClient.ReportHealth(
+			ctx, 
+			"service", 
+			a.config.ServiceName, 
+			client.LegacyToUnifiedHealth("healthy"),
+			"Service started successfully",
+		)
+		if err != nil {
+			log.Printf("Warning: Failed to report service startup to health service: %v", err)
+		}
+	}
+	
+	// Set up graceful shutdown handler
 	go func() {
-		log.Printf("Starting API server on port %d", a.config.Port)
+		// Set up graceful shutdown
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 		
-		// Report service startup to health service
-		if a.config.HealthEnabled {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			
-			err := a.healthClient.ReportHealth(
-				ctx, 
-				"service", 
-				a.config.ServiceName, 
-				client.LegacyToUnifiedHealth("healthy"),
-				"Service started successfully",
-			)
-			if err != nil {
-				log.Printf("Warning: Failed to report service startup to health service: %v", err)
-			}
-		}
+		// Block until signal is received
+		<-stop
 		
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Error starting server: %v", err)
-		}
+		// Perform shutdown
+		a.shutdown(server)
+		
+		close(serverStopped)
 	}()
+	
+	// Report service is running
+	log.Printf("Starting API server on port %d", a.config.Port)
+	
+	// Start the server (this blocks until server is shut down)
+	err := server.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("error starting server: %w", err)
+	}
+	
+	// Wait for server to be fully stopped
+	<-serverStopped
+	
+	return nil
+}
 
-	// Set up graceful shutdown
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	// Block until signal is received
-	<-stop
-
+// shutdown gracefully stops the server
+func (a *API) shutdown(server *http.Server) {
 	log.Println("Shutting down server...")
 	
 	// Report service shutdown to health service
@@ -765,13 +784,12 @@ func (a *API) Start() error {
 	
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
+	
 	if err := server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("error during server shutdown: %w", err)
+		log.Printf("Error during server shutdown: %v", err)
 	}
-
+	
 	log.Println("Server gracefully stopped")
-	return nil
 }
 
 // Close closes the database connection
@@ -801,6 +819,28 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 	respondWithJSON(w, code, map[string]string{"error": message})
 }
 
+// RunAPIService starts the API service with the given configuration
+// This function can be called directly by the CLI for in-process execution
+func RunAPIService(config Config, stopChan chan struct{}) error {
+	// Create API
+	api, err := NewAPI(config)
+	if err != nil {
+		return fmt.Errorf("error creating API: %w", err)
+	}
+	
+	// Create a goroutine to handle cleanup
+	go func() {
+		// Wait for stop signal
+		<-stopChan
+		
+		// Close the API resources
+		api.Close()
+	}()
+	
+	// Start API (blocking until stopped)
+	return api.Start()
+}
+
 func main() {
 	// Parse command line flags
 	port := flag.Int("port", 8080, "API server port")
@@ -826,14 +866,21 @@ func main() {
 		ServiceName:    *svcName,
 	}
 
-	// Create and start API
-	api, err := NewAPI(config)
-	if err != nil {
-		log.Fatalf("Error creating API: %v", err)
-	}
-	defer api.Close()
-
-	if err := api.Start(); err != nil {
+	// Create stop channel for clean shutdown
+	stopChan := make(chan struct{})
+	
+	// Handle OS signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	
+	// Start signal handler
+	go func() {
+		<-sigChan
+		close(stopChan)
+	}()
+	
+	// Run API service
+	if err := RunAPIService(config, stopChan); err != nil {
 		log.Fatalf("Error running API: %v", err)
 	}
 }

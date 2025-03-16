@@ -10,3 +10,6 @@ require (
 )
 
 replace github.com/we-be/tiny-ria/quotron/health => ../health
+
+// Make the server package available
+replace github.com/tiny-ria/quotron/api-service/cmd/server => ./cmd/server
