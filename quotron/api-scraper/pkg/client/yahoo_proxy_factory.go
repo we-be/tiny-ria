@@ -26,21 +26,21 @@ func NewYahooProxyClientWithUnifiedHealth() (*YahooProxyClient, HealthMonitor, e
 	return proxyClient, healthMonitor, nil
 }
 
-// NewAlphaVantageClientWithUnifiedHealth creates a new Alpha Vantage client with unified health monitoring
-func NewAlphaVantageClientWithUnifiedHealth(apiKey string) (*AlphaVantageClient, HealthMonitor, error) {
+// NewAPIClientWithUnifiedHealth creates a new Alpha Vantage client with unified health monitoring
+func NewAPIClientWithUnifiedHealth(baseURL, apiKey string) (Client, HealthMonitor, error) {
 	// Create Alpha Vantage client
-	alphaClient := NewAlphaVantageClient(apiKey)
+	apiClient := NewAPIClient(baseURL, apiKey, 30*time.Second)
 
 	// Create unified health monitor
 	healthMonitor, err := NewUnifiedHealthMonitor(
-		alphaClient,
+		apiClient,
 		"api-scraper",
 		"alpha_vantage",
 		"Alpha Vantage Financial API",
 	)
 	if err != nil {
-		return alphaClient, nil, err
+		return apiClient, nil, err
 	}
 
-	return alphaClient, healthMonitor, nil
+	return apiClient, healthMonitor, nil
 }

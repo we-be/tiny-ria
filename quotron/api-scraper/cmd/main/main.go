@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiny-ria/quotron/api-scraper/internal/models"
-	"github.com/tiny-ria/quotron/api-scraper/pkg/client"
+	"github.com/we-be/tiny-ria/quotron/api-scraper/internal/models"
+	"github.com/we-be/tiny-ria/quotron/api-scraper/pkg/client"
 )
 
 func main() {

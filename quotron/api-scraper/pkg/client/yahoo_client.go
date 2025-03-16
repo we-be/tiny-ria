@@ -6,7 +6,7 @@ import (
 
 	"github.com/piquette/finance-go/quote"
 	"github.com/pkg/errors"
-	"github.com/tiny-ria/quotron/api-scraper/internal/models"
+	"github.com/we-be/tiny-ria/quotron/api-scraper/internal/models"
 )
 
 // YahooFinanceClient implements financial data fetching from Yahoo Finance

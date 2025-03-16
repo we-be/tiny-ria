@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/tiny-ria/quotron/api-scraper/internal/models"
+	"github.com/we-be/tiny-ria/quotron/api-scraper/internal/models"
 )
 
 // ProxyHealthResponse represents the response from the health endpoint

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/tiny-ria/quotron/api-scraper/internal/models"
+	"github.com/we-be/tiny-ria/quotron/api-scraper/internal/models"
 )
 
 // Client defines the interface for financial data clients
