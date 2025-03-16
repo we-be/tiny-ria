@@ -42,6 +42,23 @@ def test_api_scraper():
     if use_yahoo:
         # Use Yahoo Finance instead of Alpha Vantage
         logger.info("Using Yahoo Finance for testing")
+        
+        # Check if we need to start the proxy server
+        proxy_script = project_root / "api-scraper" / "scripts" / "run_proxy.sh"
+        if proxy_script.exists():
+            logger.info("Starting Yahoo Finance proxy server in background...")
+            import subprocess
+            # Start the proxy server as a background process
+            proxy_process = subprocess.Popen(
+                ["bash", str(proxy_script), "--port", "5000"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            # Give it time to start
+            time.sleep(5)
+            # Set environment variable to tell API scraper to use local proxy
+            os.environ["YAHOO_PROXY_URL"] = "http://localhost:5000"
+        
         cmd = ["./api-scraper", "--symbol", "AAPL", "--yahoo", "--json"]
     elif api_key == "demo":
         logger.warning("Using demo API key - limited functionality available")
@@ -84,6 +101,23 @@ def test_api_scraper():
                 logger.warning("Yahoo Finance integration error - check the proxy server")
     except Exception as e:
         logger.error(f"Error testing API scraper: {e}")
+    finally:
+        # Clean up any proxy process we started
+        if use_yahoo and 'proxy_process' in locals():
+            try:
+                logger.info("Stopping Yahoo Finance proxy server...")
+                proxy_process.terminate()
+                proxy_process.wait(timeout=5)
+                logger.info("Proxy server stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping proxy server: {e}")
+                # Try harder to kill it
+                try:
+                    import signal
+                    proxy_process.send_signal(signal.SIGKILL)
+                    logger.info("Forcefully killed proxy server")
+                except:
+                    pass
 
 def test_browser_scraper():
     """Test the browser scraper functionality."""

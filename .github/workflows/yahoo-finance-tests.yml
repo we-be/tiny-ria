@@ -62,8 +62,19 @@ jobs:
     - name: Test Yahoo Proxy Server Directly
       run: |
         cd quotron/api-scraper
+        # Create a simple run script if it doesn't exist
+        if [ ! -f "scripts/run_proxy.sh" ]; then
+          cat > scripts/run_proxy.sh << 'EOF'
+#!/bin/bash
+# Simple script to run the YFinance proxy server
+PYTHON_PATH=$(which python3)
+exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
+EOF
+          chmod +x scripts/run_proxy.sh
+        fi
+        
         # Start the proxy server in background
-        python3 scripts/yfinance_proxy.py --port 8081 &
+        scripts/run_proxy.sh --port 8081 &
         # Save the PID to kill it later
         PROXY_PID=$!
         # Wait for server to start

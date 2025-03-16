@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"time"
 
@@ -36,14 +37,42 @@ func NewYahooProxyClient(timeout time.Duration) (*YahooProxyClient, error) {
 		timeout = 30 * time.Second
 	}
 
-	// Default proxy URL (localhost:5000)
-	proxyURL := "http://localhost:5000"
+	// Get proxy URL from environment or use default
+	proxyURL := os.Getenv("YAHOO_PROXY_URL")
+	if proxyURL == "" {
+		proxyURL = "http://localhost:5000"
+	}
 
-	// Start the Python proxy server in the background with Python
-	scriptPath := "./scripts/yfinance_proxy.py"
-	cmd := exec.Command("python3", scriptPath, "--host", "localhost", "--port", "5000")
-	if err := cmd.Start(); err != nil {
-		return nil, errors.Wrap(err, "failed to start Yahoo Finance proxy server")
+	// Check if we're already running a proxy via daemon_proxy.sh
+	// First look for the PID file
+	var cmd *exec.Cmd
+	if _, err := os.Stat("/tmp/yfinance_proxy.pid"); os.IsNotExist(err) {
+		// No PID file, check if we have run_proxy.sh
+		scriptPath := "./scripts/run_proxy.sh"
+		if _, err := os.Stat(scriptPath); err == nil {
+			// Use run_proxy.sh instead of direct Python call
+			cmd = exec.Command(scriptPath, "--host", "localhost", "--port", "5000")
+		} else {
+			// Try daemon_proxy.sh
+			daemonScript := "./scripts/daemon_proxy.sh"
+			if _, err := os.Stat(daemonScript); err == nil {
+				// Use daemon script
+				cmd = exec.Command(daemonScript, "--host", "localhost", "--port", "5000")
+			} else {
+				// Fall back to direct Python invocation
+				scriptPath := "./scripts/yfinance_proxy.py"
+				cmd = exec.Command("python3", scriptPath, "--host", "localhost", "--port", "5000")
+			}
+		}
+		
+		// Start the process
+		if err := cmd.Start(); err != nil {
+			return nil, errors.Wrap(err, "failed to start Yahoo Finance proxy server")
+		}
+	} else {
+		// PID file exists, proxy may already be running
+		// We'll still create a cmd for proper cleanup but won't start it
+		cmd = exec.Command("echo", "Proxy already running")
 	}
 
 	// Create the client
