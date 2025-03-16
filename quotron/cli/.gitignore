@@ -24,4 +24,4 @@
 .idea/
 .vscode/
 *.swp
-*.swo
+*.swo.data/
