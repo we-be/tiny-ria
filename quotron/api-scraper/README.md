@@ -1,5 +1,8 @@
 # API Scraper
 
+![API Scraper Tests](https://github.com/we-be/tiny-ria/actions/workflows/api-scraper-tests.yml/badge.svg)
+![Yahoo Finance Tests](https://github.com/we-be/tiny-ria/actions/workflows/yahoo-finance-tests.yml/badge.svg)
+
 A Go-based client for fetching financial data from various financial APIs.
 
 ## Supported APIs

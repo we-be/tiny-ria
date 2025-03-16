@@ -1,5 +1,7 @@
 # Quotron CLI
 
+![CLI Build](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml/badge.svg)
+
 This CLI provides a unified interface for managing all Quotron services and operations.
 
 ## Overview
