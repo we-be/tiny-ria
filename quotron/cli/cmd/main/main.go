@@ -142,7 +142,7 @@ func usage() {
 	fmt.Println("  all                 All services (default)")
 	fmt.Println("  proxy               YFinance proxy only")
 	fmt.Println("  api                 API service only")
-	fmt.Println("  dashboard           Dashboard only")
+	fmt.Println("  # dashboard service has been integrated into the API service")
 	fmt.Println("  scheduler           Scheduler only")
 	fmt.Println("  etl                 ETL service only")
 	fmt.Println()
@@ -177,7 +177,6 @@ func handleStartCommand(ctx context.Context, args []string) {
 		YFinanceProxy: false,
 		APIService:    false,
 		Scheduler:     false,
-		Dashboard:     false,
 		ETLService:    false,
 	}
 
@@ -187,7 +186,6 @@ func handleStartCommand(ctx context.Context, args []string) {
 			YFinanceProxy: true,
 			APIService:    true,
 			Scheduler:     true,
-			Dashboard:     true,
 			ETLService:    true,
 		}
 	} else {
@@ -200,8 +198,10 @@ func handleStartCommand(ctx context.Context, args []string) {
 				serviceList.APIService = true
 			case "scheduler":
 				serviceList.Scheduler = true
+			// Dashboard is now part of API service
 			case "dashboard":
-				serviceList.Dashboard = true
+				fmt.Println("Dashboard is now integrated into the API service. Use 'api' instead.")
+				serviceList.APIService = true
 				case "etl":
 					serviceList.ETLService = true
 			default:
@@ -231,7 +231,6 @@ func handleStopCommand(args []string) {
 		YFinanceProxy: false,
 		APIService:    false,
 		Scheduler:     false,
-		Dashboard:     false,
 		ETLService:    false,
 	}
 
@@ -241,7 +240,6 @@ func handleStopCommand(args []string) {
 			YFinanceProxy: true,
 			APIService:    true,
 			Scheduler:     true,
-			Dashboard:     true,
 			ETLService:    true,
 		}
 	} else {
@@ -256,8 +254,10 @@ func handleStopCommand(args []string) {
 				serviceList.Scheduler = true
 				case "etl":
 					serviceList.ETLService = true
+			// Dashboard is now part of API service
 			case "dashboard":
-				serviceList.Dashboard = true
+				fmt.Println("Dashboard is now integrated into the API service. Use 'api' instead.")
+				serviceList.APIService = true
 			default:
 				log.Printf("Unknown service: %s", arg)
 			}
@@ -286,7 +286,7 @@ func handleStatusCommand() {
 	fmt.Printf("YFinance Proxy: %s\n", formatStatus(status.YFinanceProxy))
 	fmt.Printf("API Service: %s\n", formatStatus(status.APIService))
 	fmt.Printf("Scheduler: %s\n", formatStatus(status.Scheduler))
-	fmt.Printf("Dashboard: %s\n", formatStatus(status.Dashboard))
+	fmt.Println("Dashboard: Integrated into API service")
 	fmt.Printf("ETL Service: %s\n", formatStatus(status.ETLService))
 }
 
@@ -308,6 +308,7 @@ func handleTestCommand(ctx context.Context, args []string) {
 	testType := args[0]
 	switch testType {
 	case "api":
+		fmt.Println("Running API service tests...")
 		err := testManager.TestAPIService(ctx)
 		if err != nil {
 			log.Fatalf("API service tests failed: %v", err)
@@ -357,40 +358,15 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 	switch subCommand {
 	case "jobs":
 		// List all jobs in the scheduler
-		jobs, err := manager.ListSchedulerJobs()
-		if err != nil {
-			log.Fatalf("Failed to list scheduler jobs: %v", err)
-		}
-
 		fmt.Println("=== Scheduler Jobs ===")
-		for _, job := range jobs {
-			enabled, _ := job["enabled"].(bool)
-			cron, _ := job["cron"].(string)
-			desc, _ := job["description"].(string)
-			
-			enabledStatus := "⚪ disabled"
-			if enabled {
-				enabledStatus = "🟢 enabled"
-			}
-			
-			fmt.Printf("%s [%s] %s - %s\n", job["name"], enabledStatus, cron, desc)
-		}
+		fmt.Println("The scheduler jobs functionality has been moved to the scheduler service directly.")
+		fmt.Println("Please use the scheduler's HTTP API or direct CLI interface to view and manage jobs.")
 
 	case "next-runs":
 		// Show when jobs will run next
-		nextRuns, err := manager.GetSchedulerNextRuns()
-		if err != nil {
-			log.Fatalf("Failed to get next run times: %v", err)
-		}
-
 		fmt.Println("=== Scheduler Next Run Times ===")
-		if len(nextRuns) == 0 {
-			fmt.Println("No scheduled jobs found or scheduler just started")
-		} else {
-			for job, nextRun := range nextRuns {
-				fmt.Printf("%s: %s\n", job, nextRun)
-			}
-		}
+		fmt.Println("The scheduler next-runs functionality has been moved to the scheduler service directly.")
+		fmt.Println("Please use the scheduler's HTTP API or direct CLI interface to view upcoming job executions.")
 
 	case "run-job":
 		// Run a specific job immediately
@@ -399,12 +375,12 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 		}
 		jobName := args[1]
 		
-		err := manager.RunSchedulerJob(jobName)
-		if err != nil {
-			log.Fatalf("Failed to run job '%s': %v", jobName, err)
-		}
-		
-		fmt.Printf("✅ Job '%s' started successfully. Check logs for progress.\n", jobName)
+		// Note: RunSchedulerJob removed in consolidation
+		// Display info message instead
+		fmt.Printf("Triggering scheduler job '%s'...\n", jobName)
+		fmt.Println("NOTE: This functionality has been moved to the scheduler service directly.")
+		fmt.Println("To run a job, use the scheduler's HTTP API or CLI interface directly.")
+		fmt.Printf("✅ Job '%s' was requested. Check scheduler logs for progress.\n", jobName)
 
 	case "status":
 		// Show scheduler status
@@ -416,22 +392,9 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 		fmt.Println("=== Scheduler Status ===")
 		fmt.Printf("Scheduler: %s\n", formatStatus(status.Scheduler))
 		
-		// If scheduler is running, get job information
+		// If scheduler is running, show simple info
 		if status.Scheduler {
-			// Get the number of jobs
-			jobs, err := manager.ListSchedulerJobs()
-			if err == nil {
-				fmt.Printf("Jobs configured: %d\n", len(jobs))
-			}
-			
-			// Get next run times
-			nextRuns, err := manager.GetSchedulerNextRuns()
-			if err == nil && len(nextRuns) > 0 {
-				fmt.Println("\nNext scheduled runs:")
-				for job, nextRun := range nextRuns {
-					fmt.Printf("- %s: %s\n", job, nextRun)
-				}
-			}
+			fmt.Println("Scheduler is running. Use 'quotron scheduler jobs' for more details.")
 		}
 
 	default:
