@@ -82,17 +82,25 @@ stop_proxy() {
   return 0
 }
 
-# Check if proxy is already running
-if is_running; then
-  echo "YFinance proxy is already running with PID $(cat $PID_FILE)"
-  echo "Use '$0 stop' to stop it first"
-  exit 1
-fi
-
-# Handle stop command
+# Handle stop command first
 if [ "$1" = "stop" ]; then
   stop_proxy
   exit 0
+fi
+
+# Then check if proxy is already running
+if is_running; then
+  echo "YFinance proxy is already running with PID $(cat $PID_FILE)"
+  
+  # Check if it's responding
+  if curl -s "http://$HOST:$PORT" >/dev/null; then
+    echo "Service is responding at http://$HOST:$PORT"
+    exit 0
+  else
+    echo "Process is running but not responding."
+    echo "Consider stopping it first: '$0 stop'"
+    exit 1
+  fi
 fi
 
 # Start the daemon

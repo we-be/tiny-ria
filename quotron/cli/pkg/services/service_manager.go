@@ -257,6 +257,14 @@ func (sm *ServiceManager) startYFinanceProxy(ctx context.Context) error {
 	// Run the daemon script (will run and wait for HTTP response)
 	runErr := cmd.Run()
 	if runErr != nil {
+		// Check if the error is because the daemon is already running
+		if sm.checkServiceResponding(sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort) {
+			fmt.Println("YFinance proxy is already running and responding - continuing")
+			fmt.Printf("UI available at http://%s:%d\n", sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort)
+			return nil
+		}
+		
+		// If we're here, it's a real error
 		fmt.Printf("Error: Daemon script returned non-zero exit code: %v\n", runErr)
 		logTail, _ := exec.Command("tail", "-n", "20", sm.config.YFinanceLogFile).Output()
 		if len(logTail) > 0 {
