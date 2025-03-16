@@ -22,6 +22,7 @@ type ServiceList struct {
 	APIService    bool
 	Scheduler     bool
 	Dashboard     bool
+	ETLService    bool
 }
 
 // ServiceStatus represents the running status of each service
@@ -30,6 +31,7 @@ type ServiceStatus struct {
 	APIService    bool
 	Scheduler     bool
 	Dashboard     bool
+	ETLService    bool
 }
 
 // ServiceManager manages operations on services
@@ -97,6 +99,13 @@ func (sm *ServiceManager) StartServices(ctx context.Context, services ServiceLis
 		}
 	}
 
+	if services.ETLService {
+		err := sm.startETLService(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start ETL Service: %w", err)
+		}
+	}
+
 	// If monitor mode is enabled, start monitoring services
 	if monitor {
 		go sm.monitorServices(ctx, services)
@@ -126,6 +135,13 @@ func (sm *ServiceManager) StopServices(services ServiceList) error {
 		err := sm.stopService("API Service", sm.config.APIServicePIDFile, "api-service")
 		if err != nil {
 			return fmt.Errorf("failed to stop API Service: %w", err)
+		}
+	}
+
+	if services.ETLService {
+		err := sm.stopService("ETL Service", sm.config.ETLServicePIDFile, "etl.*-start")
+		if err != nil {
+			return fmt.Errorf("failed to stop ETL Service: %w", err)
 		}
 	}
 
@@ -174,6 +190,7 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 		APIService:    false,
 		Scheduler:     false,
 		Dashboard:     false,
+		ETLService:    false,
 	}
 
 	// Check YFinance Proxy
@@ -202,6 +219,9 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 	// Check Dashboard
 	status.Dashboard = sm.checkServiceRunning(sm.config.DashboardPIDFile, "python.*dashboard.py",
 		sm.config.DashboardHost, sm.config.DashboardPort)
+		
+	// Check ETL Service
+	status.ETLService = sm.checkServiceRunning(sm.config.ETLServicePIDFile, "etl.*-start", "", 0)
 
 	return status, nil
 }
@@ -883,6 +903,109 @@ func (sm *ServiceManager) readPid(pidFile string) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(strings.TrimSpace(string(data)))
+}
+
+// startETLService starts the ETL service
+func (sm *ServiceManager) startETLService(ctx context.Context) error {
+	// Check if already running
+	if sm.checkServiceRunning(sm.config.ETLServicePIDFile, "etl.*-start", "", 0) {
+		fmt.Println("ETL Service is already running")
+		return nil
+	}
+	
+	// Build the ETL service if needed
+	etlDir := filepath.Join(sm.config.QuotronRoot, "cli")
+	etlBin := filepath.Join(etlDir, "cmd", "etl", "etl")
+	
+	// Check if the binary directory exists
+	etlBinDir := filepath.Join(etlDir, "cmd", "etl")
+	if _, err := os.Stat(etlBinDir); os.IsNotExist(err) {
+		// Create the directory if it doesn't exist
+		if err := os.MkdirAll(etlBinDir, 0755); err != nil {
+			return fmt.Errorf("failed to create ETL binary directory: %w", err)
+		}
+	}
+	
+	// Check if binary exists and is executable
+	_, err := os.Stat(etlBin)
+	if err != nil || !isExecutable(etlBin) {
+		fmt.Println("Building ETL service...")
+		
+		// Build the service
+		buildCmd := exec.Command("go", "build", "-o", etlBin, "./cmd/etl")
+		buildCmd.Dir = etlDir
+		buildOutput, err := buildCmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to build ETL service: %w, output: %s", err, buildOutput)
+		}
+		fmt.Println("ETL service built successfully")
+		
+		// Make executable
+		err = os.Chmod(etlBin, 0755)
+		if err != nil {
+			return fmt.Errorf("failed to make ETL service executable: %w", err)
+		}
+	}
+	
+	// Prepare Redis connection string
+	redisAddr := fmt.Sprintf("%s:%d", sm.config.RedisHost, sm.config.RedisPort)
+	
+	// Construct database connection string
+	dbConnStr := fmt.Sprintf(
+		"host=%s port=%d dbname=%s user=%s password=%s sslmode=disable",
+		sm.config.DBHost, sm.config.DBPort, sm.config.DBName, sm.config.DBUser, sm.config.DBPassword,
+	)
+	
+	// Start the ETL service
+	fmt.Println("Starting ETL service...")
+	
+	// Create a script to run the ETL service with nohup
+	scriptContent := `#!/bin/bash
+cd "$(dirname "$0")"
+nohup %s -start -redis=%s -dbhost=%s -dbport=%d -dbname=%s -dbuser=%s -dbpass=%s -workers=2 >> %s 2>&1 &
+echo $! > %s
+`
+	scriptPath := filepath.Join(etlDir, "start_etl.sh")
+	scriptContent = fmt.Sprintf(scriptContent,
+		etlBin,
+		redisAddr,
+		sm.config.DBHost,
+		sm.config.DBPort,
+		sm.config.DBName,
+		sm.config.DBUser,
+		sm.config.DBPassword,
+		sm.config.ETLServiceLogFile,
+		sm.config.ETLServicePIDFile,
+	)
+	
+	err = os.WriteFile(scriptPath, []byte(scriptContent), 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create ETL start script: %w", err)
+	}
+	
+	// Execute the script
+	cmd := exec.CommandContext(context.Background(), scriptPath)
+	cmd.Dir = etlDir
+	err = cmd.Run()
+	if err != nil {
+		return fmt.Errorf("failed to start ETL service: %w", err)
+	}
+	
+	// Read the PID from the file
+	time.Sleep(1 * time.Second) // Give it a moment to write the PID file
+	pid, err := sm.readPid(sm.config.ETLServicePIDFile)
+	if err != nil {
+		fmt.Printf("Warning: Could not read ETL service PID file: %v\n", err)
+	} else {
+		fmt.Printf("ETL service started successfully with PID %d\n", pid)
+	}
+	
+	// Check if process is running
+	if !isPidRunning(pid) {
+		return fmt.Errorf("ETL service failed to start, check logs at %s", sm.config.ETLServiceLogFile)
+	}
+	
+	return nil
 }
 
 // monitorServices monitors services and restarts them if they fail

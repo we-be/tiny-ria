@@ -144,6 +144,7 @@ func usage() {
 	fmt.Println("  api                 API service only")
 	fmt.Println("  dashboard           Dashboard only")
 	fmt.Println("  scheduler           Scheduler only")
+	fmt.Println("  etl                 ETL service only")
 	fmt.Println()
 	fmt.Println("Tests:")
 	fmt.Println("  all                 All tests (default)")
@@ -177,6 +178,7 @@ func handleStartCommand(ctx context.Context, args []string) {
 		APIService:    false,
 		Scheduler:     false,
 		Dashboard:     false,
+		ETLService:    false,
 	}
 
 	if len(args) == 0 || contains(args, "all") {
@@ -186,6 +188,7 @@ func handleStartCommand(ctx context.Context, args []string) {
 			APIService:    true,
 			Scheduler:     true,
 			Dashboard:     true,
+			ETLService:    true,
 		}
 	} else {
 		// Start selected services
@@ -199,6 +202,8 @@ func handleStartCommand(ctx context.Context, args []string) {
 				serviceList.Scheduler = true
 			case "dashboard":
 				serviceList.Dashboard = true
+				case "etl":
+					serviceList.ETLService = true
 			default:
 				log.Printf("Unknown service: %s", arg)
 			}
@@ -227,6 +232,7 @@ func handleStopCommand(args []string) {
 		APIService:    false,
 		Scheduler:     false,
 		Dashboard:     false,
+		ETLService:    false,
 	}
 
 	if len(args) == 0 || contains(args, "all") {
@@ -236,6 +242,7 @@ func handleStopCommand(args []string) {
 			APIService:    true,
 			Scheduler:     true,
 			Dashboard:     true,
+			ETLService:    true,
 		}
 	} else {
 		// Stop selected services
@@ -247,6 +254,8 @@ func handleStopCommand(args []string) {
 				serviceList.APIService = true
 			case "scheduler":
 				serviceList.Scheduler = true
+				case "etl":
+					serviceList.ETLService = true
 			case "dashboard":
 				serviceList.Dashboard = true
 			default:
@@ -278,6 +287,7 @@ func handleStatusCommand() {
 	fmt.Printf("API Service: %s\n", formatStatus(status.APIService))
 	fmt.Printf("Scheduler: %s\n", formatStatus(status.Scheduler))
 	fmt.Printf("Dashboard: %s\n", formatStatus(status.Dashboard))
+	fmt.Printf("ETL Service: %s\n", formatStatus(status.ETLService))
 }
 
 // handleTestCommand processes the 'test' command

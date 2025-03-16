@@ -18,6 +18,11 @@ type Config struct {
 	YFinanceProxyPort int    `json:"yfinance_proxy_port"`
 	YFinanceProxyURL  string `json:"yfinance_proxy_url"`
 
+	// Redis configuration
+	RedisHost     string `json:"redis_host"`
+	RedisPort     int    `json:"redis_port"`
+	RedisPassword string `json:"redis_password"`
+
 	// Database configuration
 	DBHost     string `json:"db_host"`
 	DBPort     int    `json:"db_port"`
@@ -47,6 +52,7 @@ type Config struct {
 	SchedulerLogFile    string `json:"scheduler_log_file"`
 	APIServiceLogFile   string `json:"api_service_log_file"`
 	HealthServiceLogFile string `json:"health_service_log_file"`
+	ETLServiceLogFile   string `json:"etl_service_log_file"`
 
 	// PID files
 	DashboardPIDFile     string `json:"dashboard_pid_file"`
@@ -54,6 +60,7 @@ type Config struct {
 	YFinanceProxyPIDFile string `json:"yfinance_proxy_pid_file"`
 	APIServicePIDFile    string `json:"api_service_pid_file"`
 	HealthServicePIDFile string `json:"health_service_pid_file"`
+	ETLServicePIDFile    string `json:"etl_service_pid_file"`
 
 	// External API keys
 	AlphaVantageAPIKey string `json:"alpha_vantage_api_key"`
@@ -75,12 +82,17 @@ func DefaultConfig() *Config {
 		YFinanceProxyPort: 5000,
 		YFinanceProxyURL:  "http://localhost:5000",
 
+		// Redis configuration
+		RedisHost:     "localhost",
+		RedisPort:     6379,
+		RedisPassword: "",
+
 		// Database configuration
 		DBHost:     "localhost",
-		DBPort:     5433,
+		DBPort:     5432,
 		DBName:     "quotron",
-		DBUser:     "postgres",
-		DBPassword: "postgres",
+		DBUser:     "quotron",
+		DBPassword: "quotron",
 
 		// Dashboard configuration
 		DashboardHost: "localhost",
@@ -103,12 +115,14 @@ func DefaultConfig() *Config {
 		YFinanceLogFile:   "/tmp/yfinance_proxy.log",
 		SchedulerLogFile:  "/tmp/scheduler.log",
 		APIServiceLogFile: "/tmp/api_service.log",
+		ETLServiceLogFile: "/tmp/etl_service.log",
 
 		// PID files
 		DashboardPIDFile:     filepath.Join(quotronRoot, "dashboard", ".dashboard.pid"),
 		SchedulerPIDFile:     filepath.Join(quotronRoot, "scheduler", ".scheduler.pid"),
 		YFinanceProxyPIDFile: filepath.Join(quotronRoot, "api-scraper", ".yfinance_proxy.pid"),
 		APIServicePIDFile:    filepath.Join(quotronRoot, "api-service", ".api_service.pid"),
+		ETLServicePIDFile:    filepath.Join(quotronRoot, "cli", ".etl_service.pid"),
 
 		// External API keys
 		AlphaVantageAPIKey: os.Getenv("ALPHA_VANTAGE_API_KEY"),
