@@ -553,8 +553,8 @@ def index():
             
             .card-section {
                 display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                gap: 20px;
+                grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+                gap: 25px;
                 margin-bottom: 30px;
             }
             
@@ -562,7 +562,8 @@ def index():
                 background-color: var(--secondary-bg);
                 border: 1px solid var(--border-color);
                 border-radius: 6px;
-                padding: 15px;
+                padding: 20px;
+                min-height: 200px;
             }
             
             .card h3 {
@@ -668,11 +669,10 @@ def index():
             
             #quote-result, #market-result {
                 margin-top: 15px;
-                display: none;
             }
             
             .hidden {
-                display: none;
+                display: none !important;
             }
             
             @media (max-width: 600px) {
@@ -858,14 +858,20 @@ def index():
                     
                     resultContainer.classList.add('hidden');
                     loader.style.display = 'inline-block';
+                    console.log("Fetching quote for:", symbol);
                     
                     fetch(`/quote/${symbol}`)
-                        .then(response => response.json())
+                        .then(response => {
+                            console.log("Response status:", response.status);
+                            return response.json();
+                        })
                         .then(data => {
+                            console.log("Quote data received:", data);
                             resultData.textContent = formatJSON(data);
                             resultContainer.classList.remove('hidden');
                         })
                         .catch(err => {
+                            console.error("Error fetching quote:", err);
                             resultData.textContent = `Error: ${err.message}`;
                             resultContainer.classList.remove('hidden');
                         })
@@ -885,14 +891,20 @@ def index():
                     
                     resultContainer.classList.add('hidden');
                     loader.style.display = 'inline-block';
+                    console.log("Fetching market data for:", symbol);
                     
                     fetch(`/market/${symbol}`)
-                        .then(response => response.json())
+                        .then(response => {
+                            console.log("Response status:", response.status);
+                            return response.json();
+                        })
                         .then(data => {
+                            console.log("Market data received:", data);
                             resultData.textContent = formatJSON(data);
                             resultContainer.classList.remove('hidden');
                         })
                         .catch(err => {
+                            console.error("Error fetching market data:", err);
                             resultData.textContent = `Error: ${err.message}`;
                             resultContainer.classList.remove('hidden');
                         })
