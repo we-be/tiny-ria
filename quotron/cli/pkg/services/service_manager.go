@@ -436,8 +436,8 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 	fmt.Println("Starting Scheduler...")
 	
 	// Create a command that uses nohup
-	cmd := exec.Command("nohup", schedulerBin, "--config", configFile)
-	cmd.Dir = schedulerDir
+	runCmd := exec.Command("nohup", schedulerBin, "--config", configFile)
+	runCmd.Dir = schedulerDir
 	
 	// Set up log redirection
 	logFile, err := os.OpenFile(sm.config.SchedulerLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
@@ -446,16 +446,16 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 	}
 	defer logFile.Close()
 	
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	runCmd.Stdout = logFile
+	runCmd.Stderr = logFile
 	
 	// Start the process
-	if err := cmd.Start(); err != nil {
+	if err := runCmd.Start(); err != nil {
 		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
 	
 	// Save PID
-	pid := cmd.Process.Pid
+	pid := runCmd.Process.Pid
 	err = sm.savePid(sm.config.SchedulerPIDFile, pid)
 	if err != nil {
 		fmt.Printf("Warning: Failed to save PID file: %v\n", err)
@@ -463,7 +463,7 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 	}
 	
 	// Detach process (prevent Go from waiting for it)
-	cmd.Process.Release()
+	runCmd.Process.Release()
 
 	fmt.Printf("Scheduler started successfully with PID %d\n", pid)
 	return nil
