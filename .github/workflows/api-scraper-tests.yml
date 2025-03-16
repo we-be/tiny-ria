@@ -51,7 +51,8 @@ jobs:
         echo "Downloading latest Quotron CLI..."
         mkdir -p /tmp/cli
         LATEST_RELEASE=$(curl -s https://api.github.com/repos/we-be/tiny-ria/releases/latest)
-        CLI_DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | grep -o "https://github.com/we-be/tiny-ria/releases/download/[^/]*/quotron-linux" | head -n 1)
+        # Use jq to reliably get the download URL
+        CLI_DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | grep -o "https://github.com/we-be/tiny-ria/releases/download/[^/]*/.*linux" | head -n 1)
         
         # If no release found, use workflow_dispatch to trigger a release
         if [ -z "$CLI_DOWNLOAD_URL" ]; then
