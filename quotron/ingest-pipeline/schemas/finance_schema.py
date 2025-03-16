@@ -38,12 +38,32 @@ class StockQuote(BaseModel):
             
     @validator('exchange', pre=True)
     def validate_exchange(cls, v):
-        # Try to convert string exchange to Exchange enum
+        # Map known exchange codes to our enum values
+        exchange_mapping = {
+            'NYSE': 'NYSE',
+            'NASDAQ': 'NASDAQ',
+            'NMS': 'NASDAQ',  # NASDAQ Market System
+            'NGS': 'NASDAQ',  # NASDAQ Global Select
+            'NAS': 'NASDAQ',  # NASDAQ variant
+            'NCM': 'NASDAQ',  # NASDAQ Capital Market
+            'AMEX': 'AMEX',
+            'ASE': 'AMEX',
+            'CBOE': 'AMEX',
+            'OTC': 'OTC',
+            'OTCBB': 'OTC',
+            'OTC PINK': 'OTC'
+        }
+        
+        # Check if we have a mapping for this exchange
+        if v in exchange_mapping:
+            return Exchange(exchange_mapping[v])
+            
+        # Try to convert string exchange to Exchange enum directly
         try:
             return Exchange(v)
         except ValueError:
-            # If it's not one of our predefined exchanges, return as is
-            return v
+            # If it's not one of our predefined exchanges, use OTHER
+            return Exchange.OTHER
     
     class Config:
         # Allow extra fields
