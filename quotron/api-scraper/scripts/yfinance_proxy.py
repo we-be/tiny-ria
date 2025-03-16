@@ -11,6 +11,7 @@ It implements the following reliability features:
 5. Integrated with unified health monitoring service
 
 The server exposes the following endpoints:
+- / - Simple web UI
 - /quote/<symbol> - Get a stock quote
 - /health - Health check endpoint
 - /metrics - Get proxy metrics (cache hits, misses, etc.)
@@ -29,7 +30,7 @@ import random
 import functools
 
 # Flask for the API server
-from flask import Flask, jsonify, request, make_response, g
+from flask import Flask, jsonify, request, make_response, g, render_template_string
 
 # Yahoo Finance API
 import yfinance as yf
@@ -488,6 +489,439 @@ def clear_cache():
     """Admin endpoint to clear the cache"""
     stock_provider.cache.clear()
     return jsonify({"status": "ok", "message": "Cache cleared"})
+
+
+@app.route('/', methods=['GET'])
+def index():
+    """Root web UI"""
+    html_template = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Quotron YFinance Proxy</title>
+        <style>
+            :root {
+                --bg-color: #0d1117;
+                --text-color: #c9d1d9;
+                --accent-color: #58a6ff;
+                --secondary-bg: #161b22;
+                --border-color: #30363d;
+                --success-color: #3fb950;
+                --warning-color: #d29922;
+                --error-color: #f85149;
+                --font-mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+            }
+            
+            body {
+                background-color: var(--bg-color);
+                color: var(--text-color);
+                font-family: var(--font-mono);
+                line-height: 1.5;
+                margin: 0;
+                padding: 20px;
+            }
+            
+            .container {
+                max-width: 900px;
+                margin: 0 auto;
+            }
+            
+            header {
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 10px;
+                margin-bottom: 20px;
+            }
+            
+            h1, h2, h3 {
+                margin-top: 0;
+                font-weight: 600;
+            }
+            
+            h1 {
+                color: var(--accent-color);
+            }
+            
+            .status-box {
+                background-color: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 6px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }
+            
+            .card-section {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+            
+            .card {
+                background-color: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 6px;
+                padding: 15px;
+            }
+            
+            .card h3 {
+                margin-top: 0;
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 10px;
+                font-size: 1.1em;
+            }
+            
+            .search-form {
+                display: flex;
+                margin-bottom: 20px;
+            }
+            
+            input[type="text"] {
+                flex-grow: 1;
+                background-color: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 6px 0 0 6px;
+                padding: 8px 12px;
+                color: var(--text-color);
+                font-family: var(--font-mono);
+                margin: 0;
+            }
+            
+            button {
+                background-color: var(--accent-color);
+                color: black;
+                border: none;
+                border-radius: 0 6px 6px 0;
+                padding: 8px 15px;
+                font-family: var(--font-mono);
+                cursor: pointer;
+                font-weight: 600;
+            }
+            
+            button:hover {
+                opacity: 0.9;
+            }
+            
+            pre {
+                background-color: var(--bg-color);
+                border: 1px solid var(--border-color);
+                border-radius: 6px;
+                padding: 15px;
+                overflow-x: auto;
+                margin: 0;
+            }
+            
+            .tag {
+                display: inline-block;
+                padding: 3px 8px;
+                border-radius: 12px;
+                font-size: 0.8em;
+                margin-right: 5px;
+            }
+            
+            .tag-success {
+                background-color: rgba(63, 185, 80, 0.2);
+                color: var(--success-color);
+                border: 1px solid rgba(63, 185, 80, 0.4);
+            }
+            
+            .tag-warning {
+                background-color: rgba(210, 153, 34, 0.2);
+                color: var(--warning-color);
+                border: 1px solid rgba(210, 153, 34, 0.4);
+            }
+            
+            .tag-error {
+                background-color: rgba(248, 81, 73, 0.2);
+                color: var(--error-color);
+                border: 1px solid rgba(248, 81, 73, 0.4);
+            }
+            
+            .endpoints {
+                margin-top: 30px;
+            }
+            
+            .endpoint {
+                background-color: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 6px;
+                padding: 10px 15px;
+                margin-bottom: 10px;
+            }
+            
+            .endpoint-method {
+                display: inline-block;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-size: 0.8em;
+                margin-right: 10px;
+                background-color: var(--accent-color);
+                color: black;
+                font-weight: bold;
+            }
+            
+            .endpoint-url {
+                font-weight: 600;
+                color: var(--accent-color);
+            }
+            
+            #quote-result, #market-result {
+                margin-top: 15px;
+                display: none;
+            }
+            
+            .hidden {
+                display: none;
+            }
+            
+            @media (max-width: 600px) {
+                .card-section {
+                    grid-template-columns: 1fr;
+                }
+            }
+            
+            .loader {
+                display: none;
+                border: 3px solid var(--secondary-bg);
+                border-radius: 50%;
+                border-top: 3px solid var(--accent-color);
+                width: 20px;
+                height: 20px;
+                margin-left: 10px;
+                animation: spin 1s linear infinite;
+            }
+            
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>Quotron YFinance Proxy</h1>
+                <p>A fast and reliable proxy for Yahoo Finance data</p>
+            </header>
+            
+            <div class="status-box">
+                <div id="health-status">
+                    <span class="tag tag-success">LOADING</span>
+                    <span id="health-text">Checking health status...</span>
+                </div>
+                <div id="uptime" style="margin-top: 10px;">Uptime: calculating...</div>
+            </div>
+            
+            <div class="card-section">
+                <div class="card">
+                    <h3>Stock Quote Lookup</h3>
+                    <div class="search-form">
+                        <input type="text" id="stock-symbol" placeholder="Enter stock symbol (e.g., AAPL)">
+                        <button id="get-quote">Get Quote</button>
+                        <div class="loader" id="quote-loader"></div>
+                    </div>
+                    <div id="quote-result" class="hidden">
+                        <pre id="quote-data"></pre>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Market Index Lookup</h3>
+                    <div class="search-form">
+                        <input type="text" id="market-symbol" placeholder="Enter index symbol (e.g., ^GSPC)">
+                        <button id="get-market">Get Index</button>
+                        <div class="loader" id="market-loader"></div>
+                    </div>
+                    <div id="market-result" class="hidden">
+                        <pre id="market-data"></pre>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Cache & Server Statistics</h3>
+                <pre id="metrics-data">Loading metrics...</pre>
+            </div>
+            
+            <div class="endpoints">
+                <h2>Available Endpoints</h2>
+                <div class="endpoint">
+                    <span class="endpoint-method">GET</span>
+                    <span class="endpoint-url">/quote/{symbol}</span>
+                    <p>Get stock quote data for a specific symbol</p>
+                </div>
+                <div class="endpoint">
+                    <span class="endpoint-method">GET</span>
+                    <span class="endpoint-url">/market/{index}</span>
+                    <p>Get market index data</p>
+                </div>
+                <div class="endpoint">
+                    <span class="endpoint-method">GET</span>
+                    <span class="endpoint-url">/health</span>
+                    <p>Check the health status of the service</p>
+                </div>
+                <div class="endpoint">
+                    <span class="endpoint-method">GET</span>
+                    <span class="endpoint-url">/metrics</span>
+                    <p>Get detailed metrics about the service</p>
+                </div>
+                <div class="endpoint">
+                    <span class="endpoint-method">POST</span>
+                    <span class="endpoint-url">/admin/cache/clear</span>
+                    <p>Clear the cache (admin only)</p>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Utility function to format JSON
+            function formatJSON(obj) {
+                return JSON.stringify(obj, null, 2);
+            }
+            
+            // Function to format time duration
+            function formatUptime(seconds) {
+                const days = Math.floor(seconds / 86400);
+                const hours = Math.floor((seconds % 86400) / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                
+                let result = '';
+                if (days > 0) result += `${days}d `;
+                if (hours > 0 || days > 0) result += `${hours}h `;
+                if (minutes > 0 || hours > 0 || days > 0) result += `${minutes}m `;
+                result += `${secs}s`;
+                
+                return result;
+            }
+            
+            // Update health status
+            function updateHealth() {
+                fetch('/health')
+                    .then(response => response.json())
+                    .then(data => {
+                        const healthTag = document.querySelector('#health-status .tag');
+                        const healthText = document.getElementById('health-text');
+                        const uptimeElement = document.getElementById('uptime');
+                        
+                        if (data.status === 'ok') {
+                            healthTag.className = 'tag tag-success';
+                            healthTag.textContent = 'HEALTHY';
+                        } else {
+                            healthTag.className = 'tag tag-error';
+                            healthTag.textContent = 'UNHEALTHY';
+                        }
+                        
+                        healthText.textContent = `Last check: ${new Date(data.last_check).toLocaleString()}`;
+                        uptimeElement.textContent = `Uptime: ${formatUptime(data.uptime)}`;
+                    })
+                    .catch(err => {
+                        const healthTag = document.querySelector('#health-status .tag');
+                        const healthText = document.getElementById('health-text');
+                        
+                        healthTag.className = 'tag tag-error';
+                        healthTag.textContent = 'ERROR';
+                        healthText.textContent = `Failed to fetch health status: ${err.message}`;
+                    });
+            }
+            
+            // Update metrics
+            function updateMetrics() {
+                fetch('/metrics')
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('metrics-data').textContent = formatJSON(data);
+                    })
+                    .catch(err => {
+                        document.getElementById('metrics-data').textContent = `Error fetching metrics: ${err.message}`;
+                    });
+            }
+            
+            // Initialize the page
+            function init() {
+                updateHealth();
+                updateMetrics();
+                
+                // Set up periodic updates
+                setInterval(updateHealth, 30000); // Every 30 seconds
+                setInterval(updateMetrics, 60000); // Every minute
+                
+                // Set up stock quote lookup
+                document.getElementById('get-quote').addEventListener('click', () => {
+                    const symbol = document.getElementById('stock-symbol').value.trim();
+                    if (!symbol) return;
+                    
+                    const loader = document.getElementById('quote-loader');
+                    const resultContainer = document.getElementById('quote-result');
+                    const resultData = document.getElementById('quote-data');
+                    
+                    resultContainer.classList.add('hidden');
+                    loader.style.display = 'inline-block';
+                    
+                    fetch(`/quote/${symbol}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            resultData.textContent = formatJSON(data);
+                            resultContainer.classList.remove('hidden');
+                        })
+                        .catch(err => {
+                            resultData.textContent = `Error: ${err.message}`;
+                            resultContainer.classList.remove('hidden');
+                        })
+                        .finally(() => {
+                            loader.style.display = 'none';
+                        });
+                });
+                
+                // Set up market index lookup
+                document.getElementById('get-market').addEventListener('click', () => {
+                    const symbol = document.getElementById('market-symbol').value.trim();
+                    if (!symbol) return;
+                    
+                    const loader = document.getElementById('market-loader');
+                    const resultContainer = document.getElementById('market-result');
+                    const resultData = document.getElementById('market-data');
+                    
+                    resultContainer.classList.add('hidden');
+                    loader.style.display = 'inline-block';
+                    
+                    fetch(`/market/${symbol}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            resultData.textContent = formatJSON(data);
+                            resultContainer.classList.remove('hidden');
+                        })
+                        .catch(err => {
+                            resultData.textContent = `Error: ${err.message}`;
+                            resultContainer.classList.remove('hidden');
+                        })
+                        .finally(() => {
+                            loader.style.display = 'none';
+                        });
+                });
+                
+                // Handle Enter key in input fields
+                document.getElementById('stock-symbol').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('get-quote').click();
+                    }
+                });
+                
+                document.getElementById('market-symbol').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('get-market').click();
+                    }
+                });
+            }
+            
+            // Initialize when the DOM is loaded
+            document.addEventListener('DOMContentLoaded', init);
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html_template)
 
 
 if __name__ == "__main__":
