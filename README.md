@@ -2,9 +2,9 @@
 
 A modular financial data scraping, analysis, and trading system.
 
-![CLI Build](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml/badge.svg)
-![Yahoo Finance Tests](https://github.com/we-be/tiny-ria/actions/workflows/yahoo-finance-tests.yml/badge.svg)
-![API Scraper Tests](https://github.com/we-be/tiny-ria/actions/workflows/api-scraper-tests.yml/badge.svg)
+[![CLI:272e9f5](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%3A272e9f5&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
+[![YFinance](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/yahoo-finance-tests.yml?label=YFinance&logo=yahoo)](https://github.com/we-be/tiny-ria/actions/workflows/yahoo-finance-tests.yml)
+[![API Scraper](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/api-scraper-tests.yml?label=API%20Scraper&logo=golang)](https://github.com/we-be/tiny-ria/actions/workflows/api-scraper-tests.yml)
 
 ## Quick Start
 
