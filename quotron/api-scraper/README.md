@@ -95,6 +95,7 @@ This component is automatically tested via GitHub Actions:
 - Tests run when changes are pushed to the `quotron/api-scraper` directory
 - Live API connectivity is verified using a real Alpha Vantage API key
 - Tests ensure the API client can successfully fetch and parse financial data
+- Yahoo Finance proxy server is tested with health checks
 
 The workflow file is at `.github/workflows/api-scraper-tests.yml`
 
