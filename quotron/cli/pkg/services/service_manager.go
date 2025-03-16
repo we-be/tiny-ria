@@ -21,7 +21,6 @@ type ServiceList struct {
 	YFinanceProxy bool
 	APIService    bool
 	Scheduler     bool
-	Dashboard     bool
 	ETLService    bool
 }
 
@@ -30,7 +29,6 @@ type ServiceStatus struct {
 	YFinanceProxy bool
 	APIService    bool
 	Scheduler     bool
-	Dashboard     bool
 	ETLService    bool
 }
 
@@ -65,10 +63,6 @@ func (sm *ServiceManager) StartServices(ctx context.Context, services ServiceLis
 		// API service requires YFinance proxy
 		services.YFinanceProxy = true
 	}
-	if services.Dashboard && !services.APIService {
-		// Dashboard usually needs API service
-		services.APIService = true
-	}
 
 	// Start services in order
 	if services.YFinanceProxy {
@@ -92,12 +86,6 @@ func (sm *ServiceManager) StartServices(ctx context.Context, services ServiceLis
 		}
 	}
 
-	if services.Dashboard {
-		err := sm.startDashboard(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to start Dashboard: %w", err)
-		}
-	}
 
 	if services.ETLService {
 		err := sm.startETLService(ctx)
@@ -117,12 +105,6 @@ func (sm *ServiceManager) StartServices(ctx context.Context, services ServiceLis
 // StopServices stops the specified services
 func (sm *ServiceManager) StopServices(services ServiceList) error {
 	// Stop services in reverse dependency order
-	if services.Dashboard {
-		err := sm.stopService("Dashboard", sm.config.DashboardPIDFile, "python.*dashboard.py")
-		if err != nil {
-			return fmt.Errorf("failed to stop Dashboard: %w", err)
-		}
-	}
 
 	if services.Scheduler {
 		err := sm.stopService("Scheduler", sm.config.SchedulerPIDFile, "scheduler")
@@ -189,7 +171,6 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 		YFinanceProxy: false,
 		APIService:    false,
 		Scheduler:     false,
-		Dashboard:     false,
 		ETLService:    false,
 	}
 
@@ -216,9 +197,6 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 		}
 	}
 
-	// Check Dashboard
-	status.Dashboard = sm.checkServiceRunning(sm.config.DashboardPIDFile, "python.*dashboard.py",
-		sm.config.DashboardHost, sm.config.DashboardPort)
 		
 	// Check ETL Service
 	status.ETLService = sm.checkServiceRunning(sm.config.ETLServicePIDFile, "etl.*-start", "", 0)
@@ -348,715 +326,310 @@ func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 
 	// Check if binary exists and is executable
 	_, err := os.Stat(apiServiceBin)
-	if err != nil || !isExecutable(apiServiceBin) {
-		fmt.Println("Building API service...")
-
-		// Build the service with main package
-		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "api-service", "./cmd/main")
+	if os.IsNotExist(err) || !isExecutable(apiServiceBin) {
+		fmt.Println("Building API Service...")
+		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "api-service", "cmd/server/main.go")
 		buildCmd.Dir = apiServiceDir
-		buildOutput, err := buildCmd.CombinedOutput()
+		buildOut, err := buildCmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("failed to build API service: %w, output: %s", err, buildOutput)
+			return fmt.Errorf("failed to build API Service: %w, output: %s", err, buildOut)
 		}
-		fmt.Println("API service built successfully")
+		fmt.Println("API Service built successfully")
 	}
 
-	// Create a script to run the service with nohup
-	scriptContent := `#!/bin/bash
-cd "$(dirname "$0")"
-nohup ./api-service \
-  --port=%d \
-  --yahoo-host=%s \
-  --yahoo-port=%d \
-  --health=false \
-  >> %s 2>&1 &
-echo $! > %s
-`
-	scriptPath := filepath.Join(apiServiceDir, "run_api.sh")
-	scriptContent = fmt.Sprintf(scriptContent, 
-		sm.config.APIPort, 
-		sm.config.YFinanceProxyHost, 
-		sm.config.YFinanceProxyPort,
-		sm.config.APIServiceLogFile,
-		sm.config.APIServicePIDFile)
-	
-	err = os.WriteFile(scriptPath, []byte(scriptContent), 0755)
-	if err != nil {
-		return fmt.Errorf("failed to create script: %w", err)
-	}
-
-	// Start the process using the script
+	// Start the API service
 	fmt.Println("Starting API service...")
-	cmd := exec.CommandContext(context.Background(), scriptPath)
-	cmd.Dir = apiServiceDir
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("failed to start process: %w", err)
-	}
-
-	// Wait for service to be available
-	err = sm.waitForService(sm.config.APIHost, sm.config.APIPort, 30*time.Second)
-	if err != nil {
-		return fmt.Errorf("service failed to start: %w", err)
-	}
-
-	// Read the PID from the file
-	pid, err := sm.readPid(sm.config.APIServicePIDFile)
-	if err != nil {
-		fmt.Printf("Warning: Could not read PID file: %v\n", err)
-		// Not fatal, continue
-	} else {
-		fmt.Printf("API service started successfully with PID %d\n", pid)
+	
+	// Ensure config dir exists
+	configDir := filepath.Dir(sm.config.APIServicePIDFile)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 	
-	return nil
-}
-
-// startScheduler starts the scheduler directly without shell scripts
-func (sm *ServiceManager) startScheduler(ctx context.Context) error {
-	// First check if scheduler is already running
-	cmd := exec.Command("pgrep", "-f", "scheduler --config")
-	if err := cmd.Run(); err == nil {
-		fmt.Println("Scheduler is already running")
-		return nil
+	// Arguments
+	args := []string{
+		"--port", strconv.Itoa(sm.config.APIPort),
+		"--yahoo-host", sm.config.YFinanceProxyHost,
+		"--yahoo-port", strconv.Itoa(sm.config.YFinanceProxyPort),
 	}
 	
-	// Kill any existing processes to be sure
-	exec.Command("pkill", "-f", "scheduler").Run()
-	
-	// Remove any stale PID files
-	os.Remove(sm.config.SchedulerPIDFile)
-	
-	// Build scheduler if needed
-	schedulerDir := sm.config.SchedulerPath
-	schedulerBin := filepath.Join(schedulerDir, "scheduler")
-	configFile := filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
-
-	// Check if binary exists and is executable
-	_, err := os.Stat(schedulerBin)
-	if err != nil || !isExecutable(schedulerBin) {
-		fmt.Println("Building Scheduler...")
-
-		// Build the service
-		buildCmd := exec.Command("go", "build", "-o", "scheduler", "./cmd/scheduler/main.go")
-		buildCmd.Dir = schedulerDir
-		buildOutput, err := buildCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to build Scheduler: %w, output: %s", err, buildOutput)
-		}
-		fmt.Println("Scheduler built successfully")
-
-		// Make executable
-		err = os.Chmod(schedulerBin, 0755)
-		if err != nil {
-			return fmt.Errorf("failed to make scheduler executable: %w", err)
-		}
-	}
-
-	// Start the scheduler directly
-	fmt.Println("Starting Scheduler...")
-	
-	// Create a command that uses nohup
-	runCmd := exec.Command("nohup", schedulerBin, "--config", configFile)
-	runCmd.Dir = schedulerDir
-	
-	// Set up log redirection
-	logFile, err := os.OpenFile(sm.config.SchedulerLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
-	}
-	defer logFile.Close()
-	
-	runCmd.Stdout = logFile
-	runCmd.Stderr = logFile
-	
-	// Start the process
-	if err := runCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start scheduler: %w", err)
+	// Add health service if enabled
+	if sm.config.HealthServiceURL != "" {
+		args = append(args, 
+			"--health", "true",
+			"--health-service", sm.config.HealthServiceURL)
 	}
 	
-	// Save PID
-	pid := runCmd.Process.Pid
-	err = sm.savePid(sm.config.SchedulerPIDFile, pid)
-	if err != nil {
-		fmt.Printf("Warning: Failed to save PID file: %v\n", err)
-		// Not fatal
-	}
-	
-	// Detach process (prevent Go from waiting for it)
-	runCmd.Process.Release()
-
-	fmt.Printf("Scheduler started successfully with PID %d\n", pid)
-	return nil
-}
-
-// startDashboard starts the dashboard
-func (sm *ServiceManager) startDashboard(ctx context.Context) error {
-	// Check if already running
-	if sm.checkServiceRunning(sm.config.DashboardPIDFile, "python.*dashboard.py",
-		sm.config.DashboardHost, sm.config.DashboardPort) {
-		fmt.Println("Dashboard is already running")
-		return nil
-	}
-
-	// Ensure directory exists
-	dashboardDir := filepath.Join(sm.config.QuotronRoot, "dashboard")
-	err := os.MkdirAll(dashboardDir, 0755)
-	if err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	// Set environment variables
-	env := os.Environ()
-	env = append(env, fmt.Sprintf("YFINANCE_PROXY_URL=%s", sm.config.YFinanceProxyURL))
-	env = append(env, fmt.Sprintf("API_SCRAPER_PATH=%s", sm.config.APIScraperPath))
-	env = append(env, fmt.Sprintf("SCHEDULER_PATH=%s", sm.config.SchedulerPath))
-
 	// Prepare command
-	cmd := exec.CommandContext(ctx, "python", "dashboard.py")
-	cmd.Dir = dashboardDir
-	cmd.Env = env
-
-	// Redirect output to log file
-	logFile, err := os.OpenFile(sm.config.DashboardLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
-	}
-	defer logFile.Close()
-
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-
-	// Start the process
-	fmt.Println("Starting Dashboard...")
-	err = cmd.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start process: %w", err)
-	}
-
-	// Save PID
-	err = sm.savePid(sm.config.DashboardPIDFile, cmd.Process.Pid)
-	if err != nil {
-		return fmt.Errorf("failed to save PID: %w", err)
-	}
-
-	// Add to global PID list for cleanup
-	addPid(cmd.Process.Pid)
-
-	// Wait a moment for Dashboard to start
-	time.Sleep(5 * time.Second)
-
-	// Check if process is still running
-	if !isPidRunning(cmd.Process.Pid) {
-		return fmt.Errorf("dashboard failed to start, check logs at %s", sm.config.DashboardLogFile)
-	}
-
-	// Wait for service to be available
-	err = sm.waitForService(sm.config.DashboardHost, sm.config.DashboardPort, 30*time.Second)
-	if err != nil {
-		fmt.Printf("Warning: Dashboard process is running, but port %d is not responding yet.\n", sm.config.DashboardPort)
-		fmt.Println("It may still be initializing. Check status later or view the logs.")
-	} else {
-		fmt.Printf("Dashboard started successfully with PID %d\n", cmd.Process.Pid)
-		fmt.Printf("Dashboard available at http://%s:%d\n", sm.config.DashboardHost, sm.config.DashboardPort)
-	}
-
-	return nil
-}
-
-// stopService stops a service by name and pattern
-func (sm *ServiceManager) stopService(name, pidFile, pattern string) error {
-	fmt.Printf("Stopping %s...\n", name)
-
-	// Try to stop using PID file first
-	if pidFile != "" {
-		pid, err := sm.readPid(pidFile)
-		if err == nil && pid > 0 {
-			// Try to terminate gracefully
-			err = syscall.Kill(pid, syscall.SIGTERM)
-			if err == nil {
-				// Wait for process to terminate
-				for i := 0; i < 5; i++ {
-					if !isPidRunning(pid) {
-						fmt.Printf("%s stopped successfully\n", name)
-						os.Remove(pidFile)
-						return nil
-					}
-					time.Sleep(1 * time.Second)
-				}
-
-				// Force kill if still running
-				fmt.Printf("%s is not responding. Sending SIGKILL...\n", name)
-				err = syscall.Kill(pid, syscall.SIGKILL)
-				if err == nil {
-					os.Remove(pidFile)
-					return nil
-				}
-			}
-		}
-	}
-
-	// If PID file approach failed, try using pattern matching
-	if pattern != "" {
-		cmd := exec.Command("bash", "-c", fmt.Sprintf("pgrep -f '%s'", pattern))
-		output, err := cmd.Output()
-		if err == nil && len(output) > 0 {
-			// Get the PIDs
-			pidsStr := strings.TrimSpace(string(output))
-			pidStrings := strings.Split(pidsStr, "\n")
-
-			for _, pidStr := range pidStrings {
-				pid, err := strconv.Atoi(pidStr)
-				if err != nil {
-					continue
-				}
-
-				// Try to terminate gracefully
-				syscall.Kill(pid, syscall.SIGTERM)
-			}
-
-			// Wait a moment
-			time.Sleep(2 * time.Second)
-
-			// Check if processes are still running
-			cmd = exec.Command("bash", "-c", fmt.Sprintf("pgrep -f '%s'", pattern))
-			output, err = cmd.Output()
-			if err != nil || len(output) == 0 {
-				fmt.Printf("%s stopped successfully\n", name)
-				if pidFile != "" {
-					os.Remove(pidFile)
-				}
-				return nil
-			}
-
-			// Force kill if still running
-			fmt.Printf("%s is not responding. Sending SIGKILL...\n", name)
-			exec.Command("bash", "-c", fmt.Sprintf("pkill -9 -f '%s'", pattern)).Run()
-			if pidFile != "" {
-				os.Remove(pidFile)
-			}
-			return nil
-		}
-	}
-
-	fmt.Printf("%s is not running\n", name)
-	if pidFile != "" {
-		os.Remove(pidFile)
-	}
-	return nil
-}
-
-// checkServiceRunning checks if a service is running
-func (sm *ServiceManager) checkServiceRunning(pidFile, pattern string, host string, port int) bool {
-	// Check if a process with a specific pattern is running
-	isProcessRunning := func(pat string) bool {
-		if pat == "" {
-			return false
-		}
-		cmd := exec.Command("bash", "-c", fmt.Sprintf("pgrep -f '%s'", pat))
-		return cmd.Run() == nil
-	}
-	
-	// Check by PID file first
-	if pidFile != "" {
-		pid, err := sm.readPid(pidFile)
-		if err == nil && pid > 0 {
-			if isPidRunning(pid) {
-				// If host and port are provided, also check if service is responding
-				if host != "" && port > 0 {
-					if sm.checkServiceResponding(host, port) {
-						return true
-					}
-				} else {
-					return true
-				}
-			}
-		}
-	}
-
-	// Check by pattern if provided
-	if pattern != "" && isProcessRunning(pattern) {
-		// If host and port are provided, also check if service is responding
-		if host != "" && port > 0 {
-			return sm.checkServiceResponding(host, port)
-		}
-		return true
-	}
-
-	// If no PID file or pattern, just check if service is responding
-	if host != "" && port > 0 {
-		return sm.checkServiceResponding(host, port)
-	}
-
-	return false
-}
-
-// ListSchedulerJobs returns a list of jobs in the scheduler
-func (sm *ServiceManager) ListSchedulerJobs() ([]map[string]interface{}, error) {
-	// Check if scheduler is running
-	if !sm.checkServiceRunning(sm.config.SchedulerPIDFile, "scheduler", "", 0) {
-		return nil, fmt.Errorf("scheduler is not running")
-	}
-
-	// Get the config file path
-	configFile := filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
-	
-	// Read the config file
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read scheduler config: %w", err)
-	}
-	
-	// Parse the config file to get job information
-	var config struct {
-		Schedules map[string]map[string]interface{} `json:"schedules"`
-	}
-	
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse scheduler config: %w", err)
-	}
-	
-	// Convert to a list of jobs
-	jobs := make([]map[string]interface{}, 0, len(config.Schedules))
-	for name, job := range config.Schedules {
-		jobInfo := map[string]interface{}{
-			"name": name,
-		}
-		
-		// Copy over job properties
-		for k, v := range job {
-			jobInfo[k] = v
-		}
-		
-		jobs = append(jobs, jobInfo)
-	}
-	
-	return jobs, nil
-}
-
-// RunSchedulerJob runs a specific scheduler job
-func (sm *ServiceManager) RunSchedulerJob(jobName string) error {
-	// Check if scheduler is running
-	if !sm.checkServiceRunning(sm.config.SchedulerPIDFile, "scheduler", "", 0) {
-		return fmt.Errorf("scheduler is not running")
-	}
-	
-	// Run the job using the scheduler binary
-	fmt.Printf("Running scheduler job '%s'...\n", jobName)
-	schedulerDir := sm.config.SchedulerPath
-	schedulerBin := filepath.Join(schedulerDir, "scheduler")
-	configFile := filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
-	
-	// Build the command
-	cmd := exec.Command(schedulerBin, "--config", configFile, "--run-job", jobName)
-	cmd.Dir = schedulerDir
-	
-	// Set up output redirection
+	cmd := exec.CommandContext(ctx, apiServiceBin, args...)
+	cmd.Dir = apiServiceDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	
-	// Run the command
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run job '%s': %w", jobName, err)
+	// Start the API service
+	err = cmd.Start()
+	if err != nil {
+		return fmt.Errorf("failed to start API Service: %w", err)
 	}
 	
-	fmt.Printf("Job '%s' executed successfully\n", jobName)
+	// Save PID
+	err = sm.savePid(sm.config.APIServicePIDFile, cmd.Process.Pid)
+	if err != nil {
+		return fmt.Errorf("failed to save API Service PID: %w", err)
+	}
+	
+	// Add to global PID list
+	addPid(cmd.Process.Pid)
+	
+	// Wait for service to be responsive
+	fmt.Printf("Waiting for service at %s:%d to respond (timeout: %ds)...\n", 
+		sm.config.APIHost, sm.config.APIPort, 30)
+	
+	// Poll until service is responsive or timeout reached
+	timeout := 30 * time.Second
+	start := time.Now()
+	attempts := 0
+	
+	for time.Since(start) < timeout {
+		if sm.checkServiceResponding(sm.config.APIHost, sm.config.APIPort) {
+			fmt.Printf("Service available after %.1f seconds (%d attempts)\n", 
+				time.Since(start).Seconds(), attempts)
+			break
+		}
+		
+		attempts++
+		time.Sleep(2 * time.Second)
+		
+		if attempts%5 == 0 {
+			fmt.Printf("Still waiting for service to respond (%.1f seconds elapsed, %d attempts)...\n", 
+				time.Since(start).Seconds(), attempts)
+		}
+	}
+	
+	if !sm.checkServiceResponding(sm.config.APIHost, sm.config.APIPort) {
+		return fmt.Errorf("timed out waiting for API Service to respond")
+	}
+	
+	fmt.Printf("API service started successfully with PID %d\n", cmd.Process.Pid)
 	return nil
 }
 
-// GetSchedulerNextRuns returns the next run time for each job
-func (sm *ServiceManager) GetSchedulerNextRuns() (map[string]string, error) {
-	// Check if scheduler is running
+// startScheduler starts the scheduler
+func (sm *ServiceManager) startScheduler(ctx context.Context) error {
+	// Check if already running
 	pid, err := sm.readPid(sm.config.SchedulerPIDFile)
-	if err != nil || !isPidRunning(pid) {
-		return nil, fmt.Errorf("scheduler is not running")
+	if err == nil && pid > 0 && isPidRunning(pid) {
+		fmt.Println("Scheduler is already running")
+		return nil
+	}
+
+	// Build scheduler if needed
+	schedulerDir := filepath.Join(sm.config.QuotronRoot, "scheduler")
+	schedulerBin := filepath.Join(schedulerDir, "scheduler")
+
+	// Check if binary exists and is executable
+	_, err = os.Stat(schedulerBin)
+	if os.IsNotExist(err) || !isExecutable(schedulerBin) {
+		fmt.Println("Building Scheduler...")
+		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "scheduler", "cmd/scheduler/main.go")
+		buildCmd.Dir = schedulerDir
+		buildOut, err := buildCmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to build Scheduler: %w, output: %s", err, buildOut)
+		}
+	}
+
+	// Start the scheduler
+	fmt.Println("Starting Scheduler...")
+	
+	// Ensure data directory exists
+	dataDir := filepath.Join(schedulerDir, "data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 	
-	// Look for scheduler log entries showing next run times
-	logFile := sm.config.SchedulerLogFile
+	// Configure scheduler
+	configFile := sm.config.SchedulerConfigFile
+	if configFile == "" {
+		configFile = filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
+	}
 	
-	// Read the log file
-	logData, err := os.ReadFile(logFile)
+	// Check config file
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		return fmt.Errorf("scheduler config file not found at %s", configFile)
+	}
+	
+	// Start the process
+	cmd := exec.CommandContext(ctx, schedulerBin, "--config", configFile)
+	cmd.Dir = schedulerDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	// Start the scheduler
+	err = cmd.Start()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read scheduler log: %w", err)
+		return fmt.Errorf("failed to start Scheduler: %w", err)
 	}
 	
-	// Parse the log to find next run times
-	logLines := strings.Split(string(logData), "\n")
-	nextRuns := make(map[string]string)
-	
-	// Look for lines like: "- stock_quotes: Next run at 2025-03-16T09:00:00Z"
-	for _, line := range logLines {
-		if strings.Contains(line, "Next run at") {
-			parts := strings.Split(line, ":")
-			if len(parts) >= 3 {
-				jobName := strings.TrimSpace(strings.TrimPrefix(parts[0], "-"))
-				timeStr := strings.TrimSpace(strings.Join(parts[2:], ":"))
-				nextRuns[jobName] = timeStr
-			}
-		}
-	}
-	
-	return nextRuns, nil
-}
-
-// checkServiceResponding checks if a service is responding on the given host and port
-func (sm *ServiceManager) checkServiceResponding(host string, port int) bool {
-	// Try both health and root endpoints with a longer timeout
-	client := &http.Client{
-		Timeout: 5 * time.Second, // Increased timeout to 5 seconds
-	}
-	
-	// Check if the port is open first (TCP check)
-	tcpAddr := fmt.Sprintf("%s:%d", host, port)
-	conn, err := net.DialTimeout("tcp", tcpAddr, 2*time.Second)
+	// Save PID
+	err = sm.savePid(sm.config.SchedulerPIDFile, cmd.Process.Pid)
 	if err != nil {
-		fmt.Printf("Port %d is not open on %s: %v\n", port, host, err)
-		return false
-	}
-	conn.Close()
-	
-	// First try the root URL (for our new UI)
-	rootURL := fmt.Sprintf("http://%s:%d", host, port)
-	req, _ := http.NewRequest("GET", rootURL, nil)
-	
-	// Set important headers
-	req.Header.Set("Accept", "text/html, */*")
-	req.Header.Set("User-Agent", "CLI-HealthChecker/1.0")
-	
-	resp, err := client.Do(req)
-	if err == nil {
-		defer resp.Body.Close()
-		
-		// Read a small part of the response
-		buf := make([]byte, 1024)
-		_, err := resp.Body.Read(buf)
-		if err != nil && err != io.EOF {
-			fmt.Printf("Error reading response body: %v\n", err)
-		} else {
-			fmt.Printf("Service %s:%d is responding at root URL (status: %d)\n", 
-				host, port, resp.StatusCode)
-			return true
-		}
+		return fmt.Errorf("failed to save Scheduler PID: %w", err)
 	}
 	
-	// Then try the health endpoint
-	healthURL := fmt.Sprintf("http://%s:%d/health", host, port)
-	req, _ = http.NewRequest("GET", healthURL, nil)
-	req.Header.Set("Accept", "application/json, */*")
-	req.Header.Set("User-Agent", "CLI-HealthChecker/1.0")
+	// Add to global PID list
+	addPid(cmd.Process.Pid)
 	
-	resp, err = client.Do(req)
-	if err == nil {
-		defer resp.Body.Close()
-		fmt.Printf("Service %s:%d is responding at health endpoint (status: %d)\n", 
-			host, port, resp.StatusCode)
-		return true
+	// Check if process is still running after a brief delay
+	time.Sleep(1 * time.Second)
+	if !isPidRunning(cmd.Process.Pid) {
+		return fmt.Errorf("scheduler failed to start")
 	}
 	
-	fmt.Printf("Service %s:%d is not responding properly (TCP connection succeeded but HTTP failed)\n", 
-		host, port)
-	return false
+	fmt.Printf("Scheduler started successfully with PID %d\n", cmd.Process.Pid)
+	return nil
 }
 
-// waitForService waits for a service to be available
-func (sm *ServiceManager) waitForService(host string, port int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	attempts := 0
-	startTime := time.Now()
-	
-	fmt.Printf("Waiting for service at %s:%d to respond (timeout: %s)...\n", 
-		host, port, timeout)
-	
-	for time.Now().Before(deadline) {
-		attempts++
-		if sm.checkServiceResponding(host, port) {
-			elapsed := time.Since(startTime).Seconds()
-			fmt.Printf("Service available after %.1f seconds (%d attempts)\n", elapsed, attempts)
-			return nil
-		}
-		
-		// Check if the process has died while waiting
-		if attempts%5 == 0 { // Check every 5 seconds
-			// For now we'll just display a waiting message
-			fmt.Printf("Still waiting for service to respond (%.1f seconds elapsed, %d attempts)...\n", 
-				time.Since(startTime).Seconds(), attempts)
-		}
-		
-		time.Sleep(2 * time.Second) // Increased sleep time between attempts
-	}
-	
-	// Timeout occurred
-	scriptsDir := filepath.Join(sm.config.QuotronRoot, "api-scraper", "scripts")
-	return fmt.Errorf("service not available after %s (%d connection attempts) - try running it manually with 'cd %s && python3 yfinance_proxy.py'", 
-		timeout, attempts, scriptsDir)
-}
-
-// savePid saves a PID to a file
-func (sm *ServiceManager) savePid(pidFile string, pid int) error {
-	return os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644)
-}
-
-// readPid reads a PID from a file
-func (sm *ServiceManager) readPid(pidFile string) (int, error) {
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return 0, err
-	}
-	return strconv.Atoi(strings.TrimSpace(string(data)))
-}
 
 // startETLService starts the ETL service
 func (sm *ServiceManager) startETLService(ctx context.Context) error {
-	// Check if already running
-	if sm.checkServiceRunning(sm.config.ETLServicePIDFile, "etl.*-start", "", 0) {
-		fmt.Println("ETL Service is already running")
+	// First check if already running
+	pid, err := sm.readPid(sm.config.ETLServicePIDFile)
+	if err == nil && pid > 0 && isPidRunning(pid) {
+		fmt.Println("ETL service is already running")
 		return nil
 	}
-	
-	// Build the ETL service if needed
+
+	// Path to the ETL directory
 	etlDir := filepath.Join(sm.config.QuotronRoot, "cli")
-	etlBin := filepath.Join(etlDir, "cmd", "etl", "etl")
 	
-	// Check if the binary directory exists
-	etlBinDir := filepath.Join(etlDir, "cmd", "etl")
-	if _, err := os.Stat(etlBinDir); os.IsNotExist(err) {
-		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(etlBinDir, 0755); err != nil {
-			return fmt.Errorf("failed to create ETL binary directory: %w", err)
-		}
+	// Check if ETL service start script exists
+	etlScript := filepath.Join(etlDir, "start_etl.sh")
+	if _, err := os.Stat(etlScript); os.IsNotExist(err) {
+		return fmt.Errorf("ETL service script not found at %s", etlScript)
 	}
 	
-	// Check if binary exists and is executable
-	_, err := os.Stat(etlBin)
-	if err != nil || !isExecutable(etlBin) {
-		fmt.Println("Building ETL service...")
-		
-		// Build the service
-		buildCmd := exec.Command("go", "build", "-o", etlBin, "./cmd/etl")
-		buildCmd.Dir = etlDir
-		buildOutput, err := buildCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to build ETL service: %w, output: %s", err, buildOutput)
-		}
-		fmt.Println("ETL service built successfully")
-		
-		// Make executable
-		err = os.Chmod(etlBin, 0755)
-		if err != nil {
-			return fmt.Errorf("failed to make ETL service executable: %w", err)
-		}
-	}
-	
-	// Prepare Redis connection string
-	redisAddr := fmt.Sprintf("%s:%d", sm.config.RedisHost, sm.config.RedisPort)
-	
-	// Construct database connection string
-//	dbConnStr := fmt.Sprintf(
-//		"host=%s port=%d dbname=%s user=%s password=%s sslmode=disable",
-//		sm.config.DBHost, sm.config.DBPort, sm.config.DBName, sm.config.DBUser, sm.config.DBPassword,
-//	)
+	// Make sure the script is executable
+	os.Chmod(etlScript, 0755)
 	
 	// Start the ETL service
 	fmt.Println("Starting ETL service...")
-	
-	// Create a script to run the ETL service with nohup
-	scriptContent := `#!/bin/bash
-cd "$(dirname "$0")"
-nohup %s -start -redis=%s -dbhost=%s -dbport=%d -dbname=%s -dbuser=%s -dbpass=%s -workers=2 >> %s 2>&1 &
-echo $! > %s
-`
-	scriptPath := filepath.Join(etlDir, "start_etl.sh")
-	scriptContent = fmt.Sprintf(scriptContent,
-		etlBin,
-		redisAddr,
-		sm.config.DBHost,
-		sm.config.DBPort,
-		sm.config.DBName,
-		sm.config.DBUser,
-		sm.config.DBPassword,
-		sm.config.ETLServiceLogFile,
-		sm.config.ETLServicePIDFile,
-	)
-	
-	err = os.WriteFile(scriptPath, []byte(scriptContent), 0755)
-	if err != nil {
-		return fmt.Errorf("failed to create ETL start script: %w", err)
-	}
-	
-	// Execute the script
-	cmd := exec.CommandContext(context.Background(), scriptPath)
+	cmd := exec.CommandContext(ctx, etlScript)
 	cmd.Dir = etlDir
-	err = cmd.Run()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	err = cmd.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start ETL service: %w", err)
 	}
 	
-	// Read the PID from the file
-	time.Sleep(1 * time.Second) // Give it a moment to write the PID file
-	pid, err := sm.readPid(sm.config.ETLServicePIDFile)
+	// Save PID
+	err = sm.savePid(sm.config.ETLServicePIDFile, cmd.Process.Pid)
 	if err != nil {
-		fmt.Printf("Warning: Could not read ETL service PID file: %v\n", err)
-	} else {
-		fmt.Printf("ETL service started successfully with PID %d\n", pid)
+		return fmt.Errorf("failed to save ETL service PID: %w", err)
 	}
 	
-	// Check if process is running
-	if !isPidRunning(pid) {
-		return fmt.Errorf("ETL service failed to start, check logs at %s", sm.config.ETLServiceLogFile)
+	// Add to global PID list
+	addPid(cmd.Process.Pid)
+	
+	fmt.Printf("ETL service started successfully with PID %d\n", cmd.Process.Pid)
+	return nil
+}
+
+// stopService stops a service given its name and PID file
+func (sm *ServiceManager) stopService(name, pidFile, processPattern string) error {
+	fmt.Printf("Stopping %s...\n", name)
+	
+	// Try to stop using PID file first
+	pid, err := sm.readPid(pidFile)
+	if err == nil && pid > 0 {
+		if isPidRunning(pid) {
+			// Try to gracefully terminate the process
+			process, err := os.FindProcess(pid)
+			if err == nil {
+				_ = process.Signal(syscall.SIGTERM)
+				
+				// Wait a bit for the process to terminate
+				for i := 0; i < 5; i++ {
+					time.Sleep(500 * time.Millisecond)
+					if !isPidRunning(pid) {
+						break
+					}
+				}
+				
+				// If process is still running, force kill it
+				if isPidRunning(pid) {
+					_ = process.Kill()
+				}
+			}
+		}
+		
+		// Remove PID file regardless of whether process was stopped
+		_ = os.Remove(pidFile)
+	}
+	
+	// Double check if any processes matching the pattern are still running
+	if processPattern != "" {
+		cmd := exec.Command("pgrep", "-f", processPattern)
+		output, _ := cmd.Output()
+		if len(output) > 0 {
+			// Find and kill all matching processes
+			killCmd := exec.Command("pkill", "-9", "-f", processPattern)
+			_ = killCmd.Run()
+			fmt.Printf("%s stopped forcefully\n", name)
+		} else {
+			fmt.Printf("%s stopped successfully\n", name)
+		}
+	} else {
+		fmt.Printf("%s stopped successfully\n", name)
 	}
 	
 	return nil
 }
 
-// monitorServices monitors services and restarts them if they fail
+// monitorServices monitors service health and restarts failed services
 func (sm *ServiceManager) monitorServices(ctx context.Context, services ServiceList) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-
+	
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Check service health
 			status, err := sm.GetServiceStatus()
 			if err != nil {
-				fmt.Printf("Error checking service status: %v\n", err)
+				fmt.Printf("Failed to check service status: %v\n", err)
 				continue
 			}
-
-			// Check each service
+			
+			// Restart failed services
 			if services.YFinanceProxy && !status.YFinanceProxy {
-				fmt.Println("YFinance Proxy is down, restarting...")
+				fmt.Println("YFinance Proxy is not running, restarting...")
 				err := sm.startYFinanceProxy(ctx)
 				if err != nil {
 					fmt.Printf("Failed to restart YFinance Proxy: %v\n", err)
 				}
 			}
-
+			
 			if services.APIService && !status.APIService {
-				fmt.Println("API Service is down, restarting...")
+				fmt.Println("API Service is not running, restarting...")
 				err := sm.startAPIService(ctx)
 				if err != nil {
 					fmt.Printf("Failed to restart API Service: %v\n", err)
 				}
 			}
-
+			
 			if services.Scheduler && !status.Scheduler {
-				fmt.Println("Scheduler is down, restarting...")
+				fmt.Println("Scheduler is not running, restarting...")
 				err := sm.startScheduler(ctx)
 				if err != nil {
 					fmt.Printf("Failed to restart Scheduler: %v\n", err)
 				}
 			}
-
-			if services.Dashboard && !status.Dashboard {
-				fmt.Println("Dashboard is down, restarting...")
-				err := sm.startDashboard(ctx)
-				if err != nil {
-					fmt.Printf("Failed to restart Dashboard: %v\n", err)
-				}
-			}
+			
 		}
 	}
 }
@@ -1086,4 +659,124 @@ func isExecutable(path string) bool {
 		return false
 	}
 	return info.Mode()&0111 != 0
+}
+
+// savePid saves a process ID to a file
+func (sm *ServiceManager) savePid(pidFile string, pid int) error {
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(pidFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+	
+	// Write PID to file
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), 0644); err != nil {
+		return fmt.Errorf("failed to write PID file: %w", err)
+	}
+	
+	return nil
+}
+
+// readPid reads a process ID from a file
+func (sm *ServiceManager) readPid(pidFile string) (int, error) {
+	// Check if file exists
+	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
+		return 0, fmt.Errorf("PID file %s does not exist", pidFile)
+	}
+	
+	// Read PID from file
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read PID file: %w", err)
+	}
+	
+	// Parse PID
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse PID: %w", err)
+	}
+	
+	return pid, nil
+}
+
+// checkServiceRunning checks if a service is running using PID file and process pattern
+func (sm *ServiceManager) checkServiceRunning(pidFile, processPattern string, host string, port int) bool {
+	// First check if the service is responding on its port
+	if host != "" && port > 0 {
+		if sm.checkServiceResponding(host, port) {
+			return true
+		}
+	}
+	
+	// Then check if a process with the PID in the PID file is running
+	pid, err := sm.readPid(pidFile)
+	if err == nil && pid > 0 && isPidRunning(pid) {
+		return true
+	}
+	
+	// Finally, check if any processes matching the pattern are running
+	if processPattern != "" {
+		cmd := exec.Command("pgrep", "-f", processPattern)
+		if cmd.Run() == nil {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// checkServiceResponding checks if a service is responding on its port
+func (sm *ServiceManager) checkServiceResponding(host string, port int) bool {
+	if host == "" || port <= 0 {
+		return false
+	}
+	
+	// First check if the port is open
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 1*time.Second)
+	if err != nil {
+		fmt.Printf("Port %d is not open on %s: %v\n", port, host, err)
+		return false
+	}
+	defer conn.Close()
+	
+	// Then check if the service has a root HTTP endpoint
+	client := http.Client{
+		Timeout: 5 * time.Second,
+	}
+	
+	url := fmt.Sprintf("http://%s:%d", host, port)
+	resp, err := client.Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	
+	// Read response body up to 1KB to avoid memory issues with large responses
+	buffer := make([]byte, 1024)
+	_, _ = io.ReadAtLeast(resp.Body, buffer, 1)
+	
+	fmt.Printf("Service %s is responding at root URL (status: %d)\n", url, resp.StatusCode)
+	return resp.StatusCode >= 200 && resp.StatusCode < 500
+}
+
+// GetConfig returns the current configuration
+func (sm *ServiceManager) GetConfig() *Config {
+	return sm.config
+}
+
+// readConfigJSON reads and parses config from JSON file
+func readConfigJSON(configPath string) (map[string]interface{}, error) {
+	// Read file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	
+	// Parse JSON
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
+	}
+	
+	return config, nil
 }

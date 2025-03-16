@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -34,13 +35,13 @@ type Config struct {
 	ServiceName    string
 }
 
-// DataSourceHealth represents health status of data sources
-// This is kept for compatibility, but we're transitioning to the unified health service
-type DataSourceHealth struct {
-	SourceName string    `json:"source_name"`
-	Status     string    `json:"status"`
-	LastCheck  time.Time `json:"last_check"`
-	Message    string    `json:"message"`
+// HealthReport represents a health status report from the unified health service
+type HealthReport struct {
+	SourceType   string    `json:"source_type"`
+	SourceName   string    `json:"source_name"`
+	Status       string    `json:"status"`
+	LastCheck    time.Time `json:"last_check"`
+	ErrorMessage string    `json:"error_message"`
 }
 
 // API handles the HTTP server and routes
@@ -138,7 +139,10 @@ func (a *API) setupRoutes() {
 	// Data source health endpoint
 	a.router.HandleFunc("/api/data-source/health", a.getDataSourceHealthHandler).Methods("GET")
 	
-	// Root handler for OpenAPI or documentation
+	// Crypto endpoints
+	a.router.HandleFunc("/api/crypto/{symbol}", a.getCryptoQuoteHandler).Methods("GET")
+	
+	// Root handler for Dashboard UI
 	a.router.HandleFunc("/", a.rootHandler).Methods("GET")
 }
 
@@ -187,6 +191,50 @@ func (a *API) getQuoteHandler(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, quote)
 }
 
+// getCryptoQuoteHandler returns crypto quote data for a given symbol
+func (a *API) getCryptoQuoteHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	symbol := vars["symbol"]
+
+	if symbol == "" {
+		respondWithError(w, http.StatusBadRequest, "Missing symbol parameter")
+		return
+	}
+
+	// Add USD suffix if not already present (BTC -> BTC-USD)
+	if !strings.Contains(symbol, "-") {
+		symbol = symbol + "-USD"
+	}
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Get quote from client manager - we'll use stock quote implementation
+	// since the underlying data structure is the same
+	quote, err := a.clientManager.GetStockQuote(ctx, symbol)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Error fetching crypto quote: %v", err))
+		return
+	}
+
+	// Ensure exchange is set to CRYPTO
+	quote.Exchange = "CRYPTO"
+	
+	// Store the result in database
+	if err := a.storeQuote(quote); err != nil {
+		log.Printf("Error storing crypto quote: %v", err)
+		// Continue anyway to return the quote
+	}
+
+	// Update data source health
+	if err := a.updateDataSourceHealth(quote.Source, "healthy", "Successfully fetched crypto quote"); err != nil {
+		log.Printf("Error updating data source health: %v", err)
+	}
+
+	respondWithJSON(w, http.StatusOK, quote)
+}
+
 // getIndexHandler returns market index data for a given index
 func (a *API) getIndexHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -224,32 +272,689 @@ func (a *API) getIndexHandler(w http.ResponseWriter, r *http.Request) {
 
 // getDataSourceHealthHandler returns health status of all data sources
 func (a *API) getDataSourceHealthHandler(w http.ResponseWriter, r *http.Request) {
-	sources, err := a.getDataSourceHealth()
+	reports, err := a.getDataSourceHealth()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error retrieving data source health")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, sources)
+	respondWithJSON(w, http.StatusOK, reports)
 }
 
-// rootHandler serves the API documentation or redirects to the documentation
+// rootHandler serves the dashboard UI directly
 func (a *API) rootHandler(w http.ResponseWriter, r *http.Request) {
-	apiInfo := map[string]interface{}{
-		"name":        "Quotron API Service",
-		"version":     "1.0.0",
-		"description": "Financial data API service providing stock quotes and market indices",
-		"endpoints": []map[string]string{
-			{"path": "/api/health", "method": "GET", "description": "Get API health status"},
-			{"path": "/api/quote/{symbol}", "method": "GET", "description": "Get stock quote for a symbol"},
-			{"path": "/api/quotes/batch", "method": "POST", "description": "Get batch stock quotes"},
-			{"path": "/api/quotes/history/{symbol}", "method": "GET", "description": "Get quote history for a symbol"},
-			{"path": "/api/index/{index}", "method": "GET", "description": "Get market index data"},
-			{"path": "/api/indices/batch", "method": "POST", "description": "Get batch market indices"},
-			{"path": "/api/data-source/health", "method": "GET", "description": "Get data source health"},
-		},
+	// If the request specifically asks for JSON (API info), provide it
+	if r.Header.Get("Accept") == "application/json" {
+		apiInfo := map[string]interface{}{
+			"name":        "Quotron API Service",
+			"version":     "1.0.0",
+			"description": "Financial data API service providing stock quotes and market indices",
+			"endpoints": []map[string]string{
+				{"path": "/api/health", "method": "GET", "description": "Get API health status"},
+				{"path": "/api/quote/{symbol}", "method": "GET", "description": "Get stock quote for a symbol"},
+				{"path": "/api/quotes/batch", "method": "POST", "description": "Get batch stock quotes"},
+				{"path": "/api/quotes/history/{symbol}", "method": "GET", "description": "Get quote history for a symbol"},
+				{"path": "/api/index/{index}", "method": "GET", "description": "Get market index data"},
+				{"path": "/api/indices/batch", "method": "POST", "description": "Get batch market indices"},
+				{"path": "/api/data-source/health", "method": "GET", "description": "Get data source health"},
+				{"path": "/api/crypto/{symbol}", "method": "GET", "description": "Get cryptocurrency quote for a symbol"},
+			},
+		}
+		respondWithJSON(w, http.StatusOK, apiInfo)
+		return
 	}
-	respondWithJSON(w, http.StatusOK, apiInfo)
+
+	// Otherwise, serve the dashboard UI
+	dashboard := `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quotron Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --accent-color: #58a6ff;
+            --secondary-bg: #161b22;
+            --border-color: #30363d;
+            --success-color: #3fb950;
+            --warning-color: #d29922;
+            --error-color: #f85149;
+            --font-mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+        }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-mono);
+            line-height: 1.5;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        h1, h2, h3 {
+            margin-top: 0;
+            font-weight: 600;
+        }
+        
+        h1 {
+            color: var(--accent-color);
+        }
+        
+        .status-box {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .card-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 20px;
+            min-height: 200px;
+        }
+        
+        .card h3 {
+            margin-top: 0;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        .search-form {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        
+        input[type="text"] {
+            flex-grow: 1;
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px 0 0 6px;
+            padding: 8px 12px;
+            color: var(--text-color);
+            font-family: var(--font-mono);
+            margin: 0;
+        }
+        
+        button {
+            background-color: var(--accent-color);
+            color: black;
+            border: none;
+            border-radius: 0 6px 6px 0;
+            padding: 8px 15px;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+        
+        pre {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            overflow-x: auto;
+            margin: 0;
+        }
+        
+        .tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-right: 5px;
+        }
+        
+        .tag-success {
+            background-color: rgba(63, 185, 80, 0.2);
+            color: var(--success-color);
+            border: 1px solid rgba(63, 185, 80, 0.4);
+        }
+        
+        .tag-warning {
+            background-color: rgba(210, 153, 34, 0.2);
+            color: var(--warning-color);
+            border: 1px solid rgba(210, 153, 34, 0.4);
+        }
+        
+        .tag-error {
+            background-color: rgba(248, 81, 73, 0.2);
+            color: var(--error-color);
+            border: 1px solid rgba(248, 81, 73, 0.4);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        th {
+            background-color: var(--bg-color);
+            font-weight: 600;
+        }
+        
+        .positive {
+            color: var(--success-color);
+        }
+        
+        .negative {
+            color: var(--error-color);
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        @media (max-width: 600px) {
+            .card-section {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .loader {
+            display: inline-block;
+            border: 3px solid var(--secondary-bg);
+            border-radius: 50%;
+            border-top: 3px solid var(--accent-color);
+            width: 20px;
+            height: 20px;
+            margin-left: 10px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        a {
+            text-decoration: none;
+            color: var(--accent-color);
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        .symbol-link {
+            cursor: pointer;
+            display: inline-block;
+            margin: 0 2px;
+        }
+
+        .price-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .crypto-section {
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Quotron Dashboard</h1>
+            <p>Financial Data Monitoring Platform</p>
+        </header>
+        
+        <div class="status-box">
+            <div id="service-status">
+                <h3>Service Status</h3>
+                <div id="status-loading">Loading services status... <div class="loader"></div></div>
+                <div id="status-content" class="hidden">
+                    <table id="services-table">
+                        <thead>
+                            <tr>
+                                <th>Service</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-section">
+            <div class="card">
+                <h3>Stock Quote Lookup</h3>
+                <div class="search-form">
+                    <input type="text" id="stock-symbol" placeholder="Enter stock symbol (e.g., AAPL)">
+                    <button id="get-quote">Get Quote</button>
+                </div>
+                <div style="margin-top: 10px; font-size: 0.85em;">
+                    Popular symbols: 
+                    <a href="#" class="symbol-link" data-type="stock" data-symbol="AAPL">AAPL</a> | 
+                    <a href="#" class="symbol-link" data-type="stock" data-symbol="MSFT">MSFT</a> | 
+                    <a href="#" class="symbol-link" data-type="stock" data-symbol="GOOGL">GOOGL</a> | 
+                    <a href="#" class="symbol-link" data-type="stock" data-symbol="AMZN">AMZN</a> | 
+                    <a href="#" class="symbol-link" data-type="stock" data-symbol="TSLA">TSLA</a>
+                </div>
+                <div id="quote-result" class="hidden">
+                    <div id="quote-loading">
+                        <div class="loader"></div> Loading data...
+                    </div>
+                    <div id="quote-content" class="hidden"></div>
+                    <pre id="quote-data" class="hidden"></pre>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Market Indices</h3>
+                <div id="indices-loading">
+                    <div class="loader"></div> Loading market indices...
+                </div>
+                <div id="indices-content" class="hidden">
+                    <table id="indices-table">
+                        <thead>
+                            <tr>
+                                <th>Index</th>
+                                <th>Value</th>
+                                <th>Change</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="crypto-section">
+            <h2>Cryptocurrency Quotes</h2>
+            <div id="crypto-loading">
+                <div class="loader"></div> Loading cryptocurrency data...
+            </div>
+            <div class="card-section" id="crypto-cards"></div>
+        </div>
+    </div>
+
+    <script>
+        // Utility function to format numbers and changes
+        function formatNumber(num) {
+            return num.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
+        
+        function formatPercent(num) {
+            return num.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }) + '%';
+        }
+        
+        function formatChangeClass(num) {
+            return num >= 0 ? 'positive' : 'negative';
+        }
+        
+        function formatChangeSymbol(num) {
+            return num >= 0 ? '+' : '';
+        }
+        
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString();
+        }
+        
+        // Function to render a stock quote
+        function renderQuote(quote) {
+            const content = document.getElementById('quote-content');
+            
+            // Format quote card
+            const changeClass = formatChangeClass(quote.change);
+            const changeSymbol = formatChangeSymbol(quote.change);
+            
+            content.innerHTML = ''+
+                '<h4>' + quote.symbol + '</h4>' +
+                '<div class="price-badge">' + formatNumber(quote.price) + '</div>' +
+                '<span class="' + changeClass + '">' +
+                    changeSymbol + formatNumber(quote.change) + ' (' + changeSymbol + formatPercent(quote.changePercent) + ')' +
+                '</span>' +
+                '<div>' +
+                    '<small>Volume: ' + quote.volume.toLocaleString() + '</small>' +
+                '</div>' +
+                '<div>' +
+                    '<small>Exchange: ' + quote.exchange + '</small>' +
+                '</div>' +
+                '<div>' +
+                    '<small>Last updated: ' + formatTimestamp(quote.timestamp) + '</small>' +
+                '</div>' +
+                '<div>' +
+                    '<small>Source: ' + quote.source + '</small>' +
+                '</div>' +
+            '';
+            
+            // Format JSON data
+            document.getElementById('quote-data').textContent = JSON.stringify(quote, null, 2);
+        }
+        
+        // Function to load and display a stock quote
+        function loadQuote(symbol) {
+            const resultContainer = document.getElementById('quote-result');
+            const loadingElement = document.getElementById('quote-loading');
+            const contentElement = document.getElementById('quote-content');
+            const dataElement = document.getElementById('quote-data');
+            
+            // Show loading, hide results
+            resultContainer.classList.remove('hidden');
+            loadingElement.classList.remove('hidden');
+            contentElement.classList.add('hidden');
+            dataElement.classList.add('hidden');
+            
+            fetch('/api/quote/' + symbol)
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('Error ' + response.status + ': ' + response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    renderQuote(data);
+                    loadingElement.classList.add('hidden');
+                    contentElement.classList.remove('hidden');
+                    
+                    // Uncomment to show raw JSON data
+                    // dataElement.classList.remove('hidden');
+                })
+                .catch(function(err) {
+                    loadingElement.classList.add('hidden');
+                    contentElement.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+                    contentElement.classList.remove('hidden');
+                });
+        }
+        
+        // Function to load and display market indices
+        function loadIndices() {
+            const indicesLoading = document.getElementById('indices-loading');
+            const indicesContent = document.getElementById('indices-content');
+            const indicesTable = document.getElementById('indices-table').querySelector('tbody');
+            
+            indicesLoading.classList.remove('hidden');
+            indicesContent.classList.add('hidden');
+            
+            // List of indices to fetch
+            const indices = [
+                { symbol: '^GSPC', name: 'S&P 500' },
+                { symbol: '^DJI', name: 'Dow Jones' },
+                { symbol: '^IXIC', name: 'NASDAQ' },
+                { symbol: '^RUT', name: 'Russell 2000' }
+            ];
+            
+            // Fetch all indices in parallel using Promise.all
+            Promise.all(indices.map(function(index) {
+                return fetch('/api/index/' + index.symbol)
+                    .then(function(response) {
+                        if (!response.ok) throw new Error('Error fetching ' + index.name);
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        data.displayName = index.name;
+                        return data;
+                    })
+                    .catch(function(err) {
+                        return { error: err.message, displayName: index.name };
+                    });
+            }))
+            .then(function(results) {
+                indicesTable.innerHTML = '';
+                
+                results.forEach(function(data) {
+                    if (data.error) {
+                        indicesTable.innerHTML += 
+                            '<tr>' +
+                                '<td>' + data.displayName + '</td>' +
+                                '<td colspan="2" class="error">Error: ' + data.error + '</td>' +
+                            '</tr>';
+                    } else {
+                        const changeClass = formatChangeClass(data.change);
+                        const changeSymbol = formatChangeSymbol(data.change);
+                        
+                        indicesTable.innerHTML += 
+                            '<tr>' +
+                                '<td>' + data.displayName + '</td>' +
+                                '<td>' + formatNumber(data.value) + '</td>' +
+                                '<td class="' + changeClass + '">' +
+                                    changeSymbol + formatNumber(data.change) + ' (' + changeSymbol + formatPercent(data.changePercent) + ')' +
+                                '</td>' +
+                            '</tr>';
+                    }
+                });
+                
+                indicesLoading.classList.add('hidden');
+                indicesContent.classList.remove('hidden');
+            })
+            .catch(function(err) {
+                indicesTable.innerHTML = 
+                    '<tr>' +
+                        '<td colspan="3" class="error">Error loading indices: ' + err.message + '</td>' +
+                    '</tr>';
+                indicesLoading.classList.add('hidden');
+                indicesContent.classList.remove('hidden');
+            });
+        }
+        
+        // Function to load cryptocurrency data
+        function loadCryptoData() {
+            const cryptoLoading = document.getElementById('crypto-loading');
+            const cryptoCards = document.getElementById('crypto-cards');
+            
+            cryptoLoading.classList.remove('hidden');
+            
+            // List of cryptocurrencies to display
+            const cryptos = [
+                { symbol: 'BTC-USD', name: 'Bitcoin' },
+                { symbol: 'ETH-USD', name: 'Ethereum' },
+                { symbol: 'SOL-USD', name: 'Solana' },
+                { symbol: 'DOGE-USD', name: 'Dogecoin' },
+                { symbol: 'XRP-USD', name: 'Ripple' }
+            ];
+            
+            // Fetch all cryptocurrencies in parallel
+            Promise.all(cryptos.map(function(crypto) {
+                return fetch('/api/crypto/' + crypto.symbol)
+                    .then(function(response) {
+                        if (!response.ok) throw new Error('Error fetching ' + crypto.name);
+                        return response.json();
+                    })
+                    .then(function(data) {
+                        data.displayName = crypto.name;
+                        return data;
+                    })
+                    .catch(function(err) {
+                        return { 
+                            error: err.message, 
+                            symbol: crypto.symbol, 
+                            displayName: crypto.name 
+                        };
+                    });
+            }))
+            .then(function(results) {
+                cryptoCards.innerHTML = '';
+                
+                results.forEach(function(data) {
+                    var cardHTML = '<div class="card">';
+                    
+                    if (data.error) {
+                        cardHTML += 
+                            '<h3>' + data.displayName + ' (' + data.symbol + ')</h3>' +
+                            '<div class="error">Error: ' + data.error + '</div>';
+                    } else {
+                        const changeClass = formatChangeClass(data.change);
+                        const changeSymbol = formatChangeSymbol(data.change);
+                        
+                        cardHTML += 
+                            '<h3>' + data.displayName + ' (' + data.symbol + ')</h3>' +
+                            '<div class="price-badge">' + formatNumber(data.price) + '</div>' +
+                            '<span class="' + changeClass + '">' +
+                                changeSymbol + formatNumber(data.change) + ' (' + changeSymbol + formatPercent(data.changePercent) + ')' +
+                            '</span>' +
+                            '<div>' +
+                                '<small>Volume: ' + (data.volume ? data.volume.toLocaleString() : 'N/A') + '</small>' +
+                            '</div>' +
+                            '<div>' +
+                                '<small>Last updated: ' + formatTimestamp(data.timestamp) + '</small>' +
+                            '</div>';
+                    }
+                    
+                    cardHTML += '</div>';
+                    cryptoCards.innerHTML += cardHTML;
+                });
+                
+                cryptoLoading.classList.add('hidden');
+            })
+            .catch(function(err) {
+                cryptoCards.innerHTML = 
+                    '<div class="card">' +
+                        '<h3>Error</h3>' +
+                        '<div class="error">Failed to load cryptocurrency data: ' + err.message + '</div>' +
+                    '</div>';
+                cryptoLoading.classList.add('hidden');
+            });
+        }
+        
+        // Function to load service status
+        function loadServiceStatus() {
+            const statusLoading = document.getElementById('status-loading');
+            const statusContent = document.getElementById('status-content');
+            const servicesTable = document.getElementById('services-table').querySelector('tbody');
+            
+            statusLoading.classList.remove('hidden');
+            statusContent.classList.add('hidden');
+            
+            fetch('/api/health')
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Error ' + response.status);
+                    return response.json();
+                })
+                .then(function(data) {
+                    // Prepare services table
+                    servicesTable.innerHTML = '';
+                    
+                    // Add API service status
+                    servicesTable.innerHTML += 
+                        '<tr>' +
+                            '<td>API Service</td>' +
+                            '<td><span class="tag tag-success">RUNNING</span></td>' +
+                        '</tr>';
+                    
+                    // Add data sources health
+                    if (data.data_sources) {
+                        Object.keys(data.data_sources).forEach(function(name) {
+                            var status = data.data_sources[name];
+                            var statusClass = status === 'healthy' ? 'tag-success' : 'tag-error';
+                            var statusText = status === 'healthy' ? 'HEALTHY' : 'UNHEALTHY';
+                            
+                            servicesTable.innerHTML += 
+                                '<tr>' +
+                                    '<td>' + name + '</td>' +
+                                    '<td><span class="tag ' + statusClass + '">' + statusText + '</span></td>' +
+                                '</tr>';
+                        });
+                    }
+                    
+                    statusLoading.classList.add('hidden');
+                    statusContent.classList.remove('hidden');
+                })
+                .catch(function(err) {
+                    servicesTable.innerHTML = 
+                        '<tr>' +
+                            '<td colspan="2" class="error">Error loading service status: ' + err.message + '</td>' +
+                        '</tr>';
+                    statusLoading.classList.add('hidden');
+                    statusContent.classList.remove('hidden');
+                });
+        }
+        
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            // Load all data sections
+            loadServiceStatus();
+            loadIndices();
+            loadCryptoData();
+            
+            // Set up stock quote lookup
+            document.getElementById('get-quote').addEventListener('click', function() {
+                var symbol = document.getElementById('stock-symbol').value.trim();
+                if (symbol) {
+                    loadQuote(symbol);
+                }
+            });
+            
+            // Enter key in the symbol input
+            document.getElementById('stock-symbol').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('get-quote').click();
+                }
+            });
+            
+            // Symbol quick links
+            document.querySelectorAll('.symbol-link').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var symbol = this.getAttribute('data-symbol');
+                    var type = this.getAttribute('data-type');
+                    
+                    if (type === 'stock') {
+                        document.getElementById('stock-symbol').value = symbol;
+                        loadQuote(symbol);
+                    }
+                });
+            });
+            
+            // Set up auto-refresh timer (every 5 minutes)
+            setInterval(function() {
+                loadIndices();
+                loadCryptoData();
+                loadServiceStatus();
+            }, 300000);
+        });
+    </script>
+</body>
+</html>
+`
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(dashboard))
 }
 
 // BatchQuoteRequest represents a request for batch quotes
@@ -557,6 +1262,8 @@ func mapExchangeToEnum(exchange string) string {
 		return "AMEX"
 	case "OTC", "OTCBB", "OTC PINK":
 		return "OTC"
+	case "CRYPTO":
+		return "CRYPTO"
 	default:
 		return "OTHER"
 	}
@@ -623,7 +1330,7 @@ func (a *API) updateDataSourceHealth(sourceName, status, message string) error {
 }
 
 // getDataSourceHealth retrieves health status for all data sources using the unified health service
-func (a *API) getDataSourceHealth() ([]DataSourceHealth, error) {
+func (a *API) getDataSourceHealth() ([]HealthReport, error) {
 	// Use the unified health client to get all data source health reports
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -636,15 +1343,16 @@ func (a *API) getDataSourceHealth() ([]DataSourceHealth, error) {
 		return a.getMockDataSourceHealth(), nil
 	}
 
-	// Filter reports by type and convert to legacy format
-	var sources []DataSourceHealth
+	// Filter reports by type
+	var sources []HealthReport
 	for _, report := range reports {
 		if report.SourceType == "data_source" {
-			sources = append(sources, DataSourceHealth{
-				SourceName: report.SourceName,
-				Status:     client.UnifiedToLegacyHealth(report.Status),
-				LastCheck:  report.LastCheck,
-				Message:    report.ErrorMessage,
+			sources = append(sources, HealthReport{
+				SourceType:   report.SourceType,
+				SourceName:   report.SourceName,
+				Status:       report.Status,
+				LastCheck:    report.LastCheck,
+				ErrorMessage: report.ErrorMessage,
 			})
 		}
 	}
@@ -658,34 +1366,37 @@ func (a *API) getDataSourceHealth() ([]DataSourceHealth, error) {
 }
 
 // getMockDataSourceHealth returns mock health data for backward compatibility
-func (a *API) getMockDataSourceHealth() []DataSourceHealth {
+func (a *API) getMockDataSourceHealth() []HealthReport {
 	// Use client health data if available
 	clientHealth := a.clientManager.GetClientHealth()
 	
-	sources := []DataSourceHealth{}
+	sources := []HealthReport{}
 	for name, status := range clientHealth {
-		sources = append(sources, DataSourceHealth{
-			SourceName: name,
-			Status:     status,
-			LastCheck:  time.Now(),
-			Message:    "Using local client health data",
+		sources = append(sources, HealthReport{
+			SourceType:   "data_source",
+			SourceName:   name,
+			Status:       client.LegacyToUnifiedHealth(status),
+			LastCheck:    time.Now(),
+			ErrorMessage: "Using local client health data",
 		})
 	}
 	
 	// If no clients were found, return default mock data
 	if len(sources) == 0 {
-		sources = []DataSourceHealth{
+		sources = []HealthReport{
 			{
-				SourceName: "Yahoo Finance",
-				Status:     "unknown",
-				LastCheck:  time.Now(),
-				Message:    "No health data available",
+				SourceType:   "data_source",
+				SourceName:   "Yahoo Finance",
+				Status:       "unknown",
+				LastCheck:    time.Now(),
+				ErrorMessage: "No health data available",
 			},
 			{
-				SourceName: "Alpha Vantage",
-				Status:     "unknown",
-				LastCheck:  time.Now(),
-				Message:    "No health data available",
+				SourceType:   "data_source",
+				SourceName:   "Alpha Vantage",
+				Status:       "unknown",
+				LastCheck:    time.Now(),
+				ErrorMessage: "No health data available",
 			},
 		}
 	}
