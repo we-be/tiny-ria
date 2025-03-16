@@ -39,7 +39,7 @@ jobs:
     - name: Build API Scraper
       run: |
         cd quotron/api-scraper
-        go build -o api-scraper ./cmd/main
+        go build -o api-scraper ./cmd/main/main.go
 
     - name: Test Yahoo Finance Integration
       run: |
@@ -77,8 +77,21 @@ EOF
         scripts/run_proxy.sh --port 8081 &
         # Save the PID to kill it later
         PROXY_PID=$!
-        # Wait for server to start
-        sleep 5
+        # Wait for server to start (with timeout)
+        max_retries=30
+        retries=0
+        echo "Waiting for proxy server to start..."
+        until curl -s http://localhost:8081/health > /dev/null 2>&1 || [ $retries -eq $max_retries ]; do
+          sleep 1
+          ((retries++))
+          echo "Waiting for server... ($retries/$max_retries)"
+        done
+        
+        if [ $retries -eq $max_retries ]; then
+          echo "Error: Proxy server failed to start within timeout period"
+          exit 1
+        fi
+        echo "Proxy server started successfully!"
         # Test the health endpoint
         curl -s http://localhost:8081/health | grep -q "ok" && echo "Health check successful"
         # Test the quote endpoint
@@ -87,3 +100,7 @@ EOF
         curl -s "http://localhost:8081/market?index=^GSPC" | grep -q "indexName" && echo "Market endpoint successful"
         # Kill the proxy server
         kill $PROXY_PID
+        # Wait for process to terminate
+        wait $PROXY_PID 2>/dev/null || true
+        # Force kill if still running
+        ps -p $PROXY_PID >/dev/null 2>&1 && kill -9 $PROXY_PID 2>/dev/null || true

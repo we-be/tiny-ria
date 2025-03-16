@@ -33,7 +33,12 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pydantic playwright
+        # Install base testing dependencies
+        pip install pytest pydantic playwright requests
+        # Install dependencies for the api-scraper
+        cd quotron/api-scraper
+        pip install -r scripts/requirements.txt
+        cd ../..
 
     - name: Install Playwright browsers
       run: |
@@ -42,7 +47,7 @@ jobs:
     - name: Build API Scraper
       run: |
         cd quotron/api-scraper
-        go build -o api-scraper ./cmd/main
+        go build -o api-scraper ./cmd/main/main.go
 
     # Run with real API key - limited to main branch
     - name: Test API Scraper with real API (main branch)
@@ -59,7 +64,7 @@ jobs:
 #!/bin/bash
 # Simple script to run the YFinance proxy server
 PYTHON_PATH=$(which python3)
-exec $PYTHON_PATH $PWD/yfinance_proxy.py "$@"
+exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
 EOF
           chmod +x api-scraper/scripts/run_proxy.sh
         fi
@@ -88,6 +93,28 @@ EOF
         
         cd ..
         
+        # Start the proxy server
+        cd api-scraper
+        ./scripts/run_proxy.sh --port 8081 &
+        PROXY_PID=$!
+        cd ..
+        
+        # Wait for proxy server to start (with timeout)
+        max_retries=30
+        retries=0
+        echo "Waiting for proxy server to start..."
+        until curl -s http://localhost:8081/health > /dev/null 2>&1 || [ $retries -eq $max_retries ]; do
+          sleep 1
+          ((retries++))
+          echo "Waiting for server... ($retries/$max_retries)"
+        done
+        
+        if [ $retries -eq $max_retries ]; then
+          echo "Error: Proxy server failed to start within timeout period"
+          exit 1
+        fi
+        echo "Proxy server started successfully!"
+        
         # Try Alpha Vantage first
         export ALPHA_VANTAGE_API_KEY=demo
         python tests/integration/test_integration.py --api || {
@@ -96,6 +123,14 @@ EOF
           export USE_YAHOO_FINANCE=true
           python tests/integration/test_integration.py --api
         }
+        
+        # Clean up: Kill the proxy server
+        kill $PROXY_PID 2>/dev/null || true
+        # Wait for process to terminate
+        wait $PROXY_PID 2>/dev/null || true
+        # Force kill if still running
+        ps -p $PROXY_PID >/dev/null 2>&1 && kill -9 $PROXY_PID 2>/dev/null || true
+        echo "Proxy server terminated"
 
     # Run other integration tests
     - name: Run other integration tests
