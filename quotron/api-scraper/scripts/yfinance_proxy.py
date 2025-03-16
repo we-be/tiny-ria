@@ -34,130 +34,54 @@ from flask import Flask, jsonify, request, make_response, g
 # Yahoo Finance API
 import yfinance as yf
 
-# Add the health module to path
-health_module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../health'))
-if health_module_path not in sys.path:
-    sys.path.append(health_module_path)
-
-# Import our unified health client
-try:
-    from client import HealthClient, HealthStatus, measure_request_time
-    health_enabled = True
-except ImportError:
-    health_enabled = False
-    logger.warning("Health client could not be imported. Health reporting will be disabled.")
-
-# Configure logging
+# Configure logging first so we can use it immediately
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("yfinance-proxy")
 
+# Add the health module to path
+health_module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../health'))
+if health_module_path not in sys.path:
+    sys.path.append(health_module_path)
+logger.info(f"Added health module path: {health_module_path}")
+
+# Create mock health classes for when health client is not available
+class MockHealthStatus:
+    HEALTHY = "healthy"
+    DEGRADED = "degraded" 
+    FAILED = "failed"
+
+class MockHealthClient:
+    def __init__(self, url):
+        self.url = url
+        
+    def report_health(self, source_type, source_name, status, response_time_ms=None, error_message=None, metadata=None):
+        logger.info(f"MOCK: Reporting health for {source_type}/{source_name}: {status}")
+        
+    def get_service_health(self, source_type, source_name):
+        return {"status": "unknown", "last_check": None, "error_count": 0}
+
+# Import our unified health client
+try:
+    from client import HealthClient, HealthStatus
+    health_enabled = True
+    logger.info(f"Health client imported successfully")
+except ImportError as e:
+    health_enabled = False
+    logger.warning(f"Health client could not be imported: {e}")
+    logger.warning(f"Attempted to import from {health_module_path}")
+    
+    # Use mock classes instead
+    logger.info("Using mock health client implementation")
+    HealthClient = MockHealthClient
+    HealthStatus = MockHealthStatus
+
 # Create Flask app
 app = Flask(__name__)
 
-class CircuitBreaker:
-    """
-    Circuit Breaker pattern implementation to prevent overwhelming unstable services.
-    
-    States:
-    - CLOSED: All requests go through
-    - OPEN: Requests are rejected immediately (circuit is tripped)
-    - HALF-OPEN: Limited test requests are allowed to check if the issue is resolved
-    """
-    
-    # Circuit states
-    CLOSED = 'closed'
-    OPEN = 'open'
-    HALF_OPEN = 'half-open'
-    
-    def __init__(self, failure_threshold=5, recovery_timeout=30, test_requests=3):
-        """
-        Initialize the circuit breaker.
-        
-        Args:
-            failure_threshold: Number of failures before opening the circuit
-            recovery_timeout: Time in seconds to wait before transitioning to half-open
-            test_requests: Number of test requests to allow in half-open state
-        """
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.test_requests = test_requests
-        
-        self.state = self.CLOSED
-        self.failure_count = 0
-        self.last_failure_time = None
-        self.test_requests_count = 0
-        self.lock = threading.RLock()
-    
-    def __call__(self, func):
-        """Decorator for functions to be protected by the circuit breaker."""
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            with self.lock:
-                # Check if circuit is OPEN
-                if self.state == self.OPEN:
-                    # Check if recovery timeout has elapsed
-                    if (datetime.now() - self.last_failure_time).total_seconds() > self.recovery_timeout:
-                        logger.info("Circuit transitioning from OPEN to HALF-OPEN")
-                        self.state = self.HALF_OPEN
-                        self.test_requests_count = 0
-                    else:
-                        raise Exception("Circuit breaker is open - request rejected")
-                
-                # Check if circuit is HALF-OPEN and too many test requests
-                if self.state == self.HALF_OPEN and self.test_requests_count >= self.test_requests:
-                    raise Exception("Circuit breaker is half-open and test request limit reached")
-                
-                # If HALF-OPEN, increment test request counter
-                if self.state == self.HALF_OPEN:
-                    self.test_requests_count += 1
-            
-            try:
-                # Execute the function
-                result = func(*args, **kwargs)
-                
-                # Success: reset or advance circuit state
-                with self.lock:
-                    if self.state == self.HALF_OPEN:
-                        # Success in HALF-OPEN means we can close the circuit
-                        logger.info("Circuit transitioning from HALF-OPEN to CLOSED")
-                        self.state = self.CLOSED
-                        self.failure_count = 0
-                    elif self.state == self.CLOSED:
-                        # Success in CLOSED keeps it closed and resets failure count
-                        self.failure_count = 0
-                
-                return result
-                
-            except Exception as e:
-                # Failure: increment failure count and potentially open circuit
-                with self.lock:
-                    self.failure_count += 1
-                    self.last_failure_time = datetime.now()
-                    
-                    if self.state == self.CLOSED and self.failure_count >= self.failure_threshold:
-                        logger.warning(f"Circuit transitioning from CLOSED to OPEN after {self.failure_count} failures")
-                        self.state = self.OPEN
-                    elif self.state == self.HALF_OPEN:
-                        # Any failure in HALF-OPEN returns to OPEN
-                        logger.warning("Circuit transitioning from HALF-OPEN back to OPEN due to failure")
-                        self.state = self.OPEN
-                
-                raise e
-        
-        return wrapper
-    
-    def get_state(self):
-        """Get the current state of the circuit breaker."""
-        with self.lock:
-            return {
-                "state": self.state,
-                "failure_count": self.failure_count,
-                "last_failure_time": self.last_failure_time.isoformat() if self.last_failure_time else None,
-                "test_requests_count": self.test_requests_count
-            }
+# Removed CircuitBreaker class - simplifying the code
 
 
 class SimpleCache:
@@ -255,51 +179,13 @@ class SimpleCache:
         }
 
 
-def retry_with_backoff(max_retries=3, initial_backoff=0.5, max_backoff=10, base=2):
-    """
-    Decorator for functions to retry with exponential backoff
-    
-    Args:
-        max_retries: Maximum number of retries
-        initial_backoff: Initial backoff time in seconds
-        max_backoff: Maximum backoff time in seconds
-        base: Base for exponential backoff calculation
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            retries = 0
-            backoff = initial_backoff
-            
-            while True:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    retries += 1
-                    if retries > max_retries:
-                        logger.error(f"Max retries ({max_retries}) exceeded")
-                        raise
-                    
-                    # Calculate backoff with jitter
-                    jitter = random.uniform(0, 0.1 * backoff)
-                    sleep_time = min(backoff + jitter, max_backoff)
-                    
-                    logger.warning(f"Retry {retries}/{max_retries} after error: {e}. Sleeping for {sleep_time:.2f}s")
-                    time.sleep(sleep_time)
-                    
-                    # Increase backoff for next retry
-                    backoff = min(backoff * base, max_backoff)
-        
-        return wrapper
-    
-    return decorator
+# Removed retry_with_backoff decorator - we let errors bubble up naturally
 
 
 class StockDataProvider:
-    """Provider for stock data with circuit breaker and retry protection"""
+    """Provider for stock data with caching"""
     
     def __init__(self):
-        self.circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
         self.cache = SimpleCache(default_ttl=300)  # 5 minutes default TTL
         self.request_stats = {
             "total_requests": 0,
@@ -309,10 +195,9 @@ class StockDataProvider:
             "api_calls": 0
         }
     
-    @retry_with_backoff(max_retries=3, initial_backoff=1)
     def _fetch_stock_data(self, symbol):
         """
-        Fetch stock data from Yahoo Finance with protection
+        Fetch stock data from Yahoo Finance
         
         Args:
             symbol: Stock symbol to fetch
@@ -324,6 +209,40 @@ class StockDataProvider:
         ticker = yf.Ticker(symbol)
         return ticker.info
     
+    def _fetch_and_cache_data(self, symbol, cache_type, transform_func):
+        """
+        Generic method to fetch and cache data
+        
+        Args:
+            symbol: Symbol to fetch (stock or index)
+            cache_type: Type of data for cache key ('quote' or 'market')
+            transform_func: Function to transform raw data into desired format
+            
+        Returns:
+            Formatted data dictionary
+        """
+        self.request_stats["total_requests"] += 1
+        self.request_stats["last_request_time"] = datetime.now()
+        
+        # Check cache first
+        cache_key = f"{cache_type}:{symbol}"
+        cached_data = self.cache.get(cache_key)
+        
+        if cached_data:
+            return cached_data
+        
+        # Fetch from API
+        info = self._fetch_stock_data(symbol)
+        
+        # Transform the data using the provided function
+        result = transform_func(info, symbol)
+        
+        # Cache the result
+        self.cache.set(cache_key, result)
+        self.request_stats["successful_requests"] += 1
+        
+        return result
+    
     def get_stock_quote(self, symbol):
         """
         Get a stock quote with caching and protection
@@ -334,22 +253,8 @@ class StockDataProvider:
         Returns:
             Stock quote dictionary
         """
-        self.request_stats["total_requests"] += 1
-        self.request_stats["last_request_time"] = datetime.now()
-        
-        try:
-            # Check cache first
-            cache_key = f"quote:{symbol}"
-            cached_quote = self.cache.get(cache_key)
-            
-            if cached_quote:
-                return cached_quote
-            
-            # Fetch from API with circuit breaker and retry protection
-            info = self._fetch_stock_data(symbol)
-            
-            # Create a simplified quote object similar to our Go model
-            quote = {
+        def transform_quote(info, symbol):
+            return {
                 "symbol": symbol,
                 "price": info.get("regularMarketPrice", 0.0),
                 "change": info.get("regularMarketChange", 0.0),
@@ -360,16 +265,7 @@ class StockDataProvider:
                 "source": "Yahoo Finance (Python)",
             }
             
-            # Cache the result
-            self.cache.set(cache_key, quote)
-            self.request_stats["successful_requests"] += 1
-            
-            return quote
-            
-        except Exception as e:
-            self.request_stats["failed_requests"] += 1
-            logger.error(f"Error fetching quote for {symbol}: {e}")
-            return {"error": str(e), "symbol": symbol}
+        return self._fetch_and_cache_data(symbol, "quote", transform_quote)
     
     def get_market_data(self, index):
         """
@@ -381,23 +277,9 @@ class StockDataProvider:
         Returns:
             Market data dictionary
         """
-        self.request_stats["total_requests"] += 1
-        self.request_stats["last_request_time"] = datetime.now()
-        
-        try:
-            # Check cache first
-            cache_key = f"market:{index}"
-            cached_data = self.cache.get(cache_key)
-            
-            if cached_data:
-                return cached_data
-            
-            # Fetch from API with circuit breaker and retry protection
-            info = self._fetch_stock_data(index)
-            
-            # Create a simplified market data object similar to our Go model
-            market_data = {
-                "indexName": info.get("shortName", index),
+        def transform_market_data(info, symbol):
+            return {
+                "indexName": info.get("shortName", symbol),
                 "value": info.get("regularMarketPrice", 0.0),
                 "change": info.get("regularMarketChange", 0.0),
                 "changePercent": info.get("regularMarketChangePercent", 0.0),
@@ -405,20 +287,7 @@ class StockDataProvider:
                 "source": "Yahoo Finance (Python)",
             }
             
-            # Cache the result
-            self.cache.set(cache_key, market_data)
-            self.request_stats["successful_requests"] += 1
-            
-            return market_data
-            
-        except Exception as e:
-            self.request_stats["failed_requests"] += 1
-            logger.error(f"Error fetching market data for {index}: {e}")
-            return {"error": str(e), "index": index}
-    
-    def get_circuit_state(self):
-        """Get the current state of the circuit breaker"""
-        return self.circuit_breaker.get_state()
+        return self._fetch_and_cache_data(index, "market", transform_market_data)
     
     def get_stats(self):
         """Get provider statistics"""
@@ -426,8 +295,7 @@ class StockDataProvider:
         
         stats = {
             "request_stats": self.request_stats,
-            "cache_stats": cache_stats,
-            "circuit_breaker": self.get_circuit_state()
+            "cache_stats": cache_stats
         }
         
         return stats
@@ -477,7 +345,7 @@ def after_request(response):
             status = HealthStatus.DEGRADED
             
         # Report health asynchronously
-        def report_health():
+        def report_request_health():
             try:
                 health_client.report_health(
                     source_type="api-scraper",
@@ -491,9 +359,9 @@ def after_request(response):
                     }
                 )
             except Exception as e:
-                logger.error(f"Failed to report health: {e}")
+                logger.error(f"Failed to report request health: {e}")
                 
-        threading.Thread(target=report_health).start()
+        threading.Thread(target=report_request_health).start()
         
     return response
 
@@ -502,57 +370,43 @@ def heartbeat_check():
     """Perform a periodic health check and update status"""
     global health_check_status
     
+    # Perform a minimal API call to check health
+    test_symbol = "AAPL"
     try:
-        # Perform a minimal API call to check health
-        test_symbol = "AAPL"
         result = stock_provider.get_stock_quote(test_symbol)
+        health_check_status["status"] = "ok"
+        health_check_status["is_healthy"] = True
+        health_check_status["consecutive_failures"] = 0
         
-        if "error" in result:
-            health_check_status["consecutive_failures"] += 1
-            logger.warning(f"Heartbeat check failed: {result['error']}")
-            if health_check_status["consecutive_failures"] >= 3:
-                health_check_status["status"] = "degraded"
-                health_check_status["is_healthy"] = False
-                # Report degraded health to unified health service
-                if health_enabled and health_client:
-                    health_client.report_health(
-                        source_type="api-scraper",
-                        source_name="yahoo_finance_proxy",
-                        status=HealthStatus.DEGRADED,
-                        error_message=str(result.get('error')),
-                        metadata={"consecutive_failures": health_check_status["consecutive_failures"]}
-                    )
-        else:
-            health_check_status["status"] = "ok"
-            health_check_status["is_healthy"] = True
-            health_check_status["consecutive_failures"] = 0
-            # Report healthy status to unified health service
-            if health_enabled and health_client:
-                health_client.report_health(
-                    source_type="api-scraper",
-                    source_name="yahoo_finance_proxy",
-                    status=HealthStatus.HEALTHY,
-                    metadata={
-                        "uptime": (datetime.now() - startup_time).total_seconds(),
-                        "cache_stats": stock_provider.cache.get_stats(),
-                    }
-                )
-    
+        # Report healthy status if health client available
+        if health_enabled and health_client:
+            health_client.report_health(
+                source_type="api-scraper",
+                source_name="yahoo_finance_proxy",
+                status=HealthStatus.HEALTHY,
+                metadata={
+                    "uptime": (datetime.now() - startup_time).total_seconds(),
+                    "cache_stats": stock_provider.cache.get_stats()
+                }
+            )
     except Exception as e:
         health_check_status["consecutive_failures"] += 1
         logger.error(f"Heartbeat check error: {e}")
-        if health_check_status["consecutive_failures"] >= 3:
-            health_check_status["status"] = "failed"
-            health_check_status["is_healthy"] = False
-            # Report failed health to unified health service
-            if health_enabled and health_client:
-                health_client.report_health(
-                    source_type="api-scraper",
-                    source_name="yahoo_finance_proxy",
-                    status=HealthStatus.FAILED,
-                    error_message=str(e),
-                    metadata={"consecutive_failures": health_check_status["consecutive_failures"]}
-                )
+        health_check_status["status"] = "failed"
+        health_check_status["is_healthy"] = False
+        
+        # Report failed health if health client available
+        if health_enabled and health_client:
+            health_client.report_health(
+                source_type="api-scraper",
+                source_name="yahoo_finance_proxy",
+                status=HealthStatus.FAILED,
+                error_message=str(e),
+                metadata={
+                    "consecutive_failures": health_check_status["consecutive_failures"],
+                    "uptime": (datetime.now() - startup_time).total_seconds()
+                }
+            )
     
     health_check_status["last_check"] = datetime.now().isoformat()
     
@@ -637,17 +491,39 @@ def clear_cache():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Enhanced Yahoo Finance Proxy Server")
-    parser.add_argument("--host", default="localhost", help="Host to bind the server to")
-    parser.add_argument("--port", type=int, default=5000, help="Port to bind the server to")
-    parser.add_argument("--debug", action="store_true", help="Run Flask in debug mode")
-    args = parser.parse_args()
-    
-    # Record startup time
-    startup_time = datetime.now()
-    
-    # Start heartbeat system
-    heartbeat_check()
-    
-    logger.info(f"Starting Enhanced Yahoo Finance proxy server on http://{args.host}:{args.port}")
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    try:
+        # Print diagnostic information
+        logger.info("=== Starting YFinance Proxy Server ===")
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Current directory: {os.getcwd()}")
+        logger.info(f"Script directory: {os.path.dirname(os.path.abspath(__file__))}")
+        
+        # Parse arguments
+        parser = argparse.ArgumentParser(description="Enhanced Yahoo Finance Proxy Server")
+        parser.add_argument("--host", default="localhost", help="Host to bind the server to")
+        parser.add_argument("--port", type=int, default=5000, help="Port to bind the server to")
+        parser.add_argument("--debug", action="store_true", help="Run Flask in debug mode")
+        parser.add_argument("--test", action="store_true", help="Test mode - initialize but don't start server")
+        args = parser.parse_args()
+        
+        # Log parsed arguments
+        logger.info(f"Arguments: host={args.host}, port={args.port}, debug={args.debug}")
+        
+        # Record startup time
+        startup_time = datetime.now()
+        
+        # Start heartbeat system
+        logger.info("Starting heartbeat system...")
+        heartbeat_check()
+        
+        # Test mode - just initialize and exit with success
+        if args.test:
+            logger.info("Test mode - initialization successful, exiting...")
+            sys.exit(0)
+            
+        # Initialize Flask app
+        logger.info(f"Starting Enhanced Yahoo Finance proxy server on http://{args.host}:{args.port}")
+        app.run(host=args.host, port=args.port, debug=args.debug)
+    except Exception as e:
+        logger.critical(f"Fatal error in main execution: {e}", exc_info=True)
+        sys.exit(1)
