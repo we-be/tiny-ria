@@ -35,8 +35,8 @@ type Config struct {
 	ServiceName    string
 }
 
-// HealthReport represents a health status report from the unified health service
-type HealthReport struct {
+// APIHealthReport represents a simplified health status report for the API
+type APIHealthReport struct {
 	SourceType   string    `json:"source_type"`
 	SourceName   string    `json:"source_name"`
 	Status       string    `json:"status"`
@@ -1330,7 +1330,7 @@ func (a *API) updateDataSourceHealth(sourceName, status, message string) error {
 }
 
 // getDataSourceHealth retrieves health status for all data sources using the unified health service
-func (a *API) getDataSourceHealth() ([]HealthReport, error) {
+func (a *API) getDataSourceHealth() ([]APIHealthReport, error) {
 	// Use the unified health client to get all data source health reports
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1343,14 +1343,14 @@ func (a *API) getDataSourceHealth() ([]HealthReport, error) {
 		return a.getMockDataSourceHealth(), nil
 	}
 
-	// Filter reports by type
-	var sources []HealthReport
+	// Filter reports by type and convert to API format
+	var sources []APIHealthReport
 	for _, report := range reports {
 		if report.SourceType == "data_source" {
-			sources = append(sources, HealthReport{
+			sources = append(sources, APIHealthReport{
 				SourceType:   report.SourceType,
 				SourceName:   report.SourceName,
-				Status:       report.Status,
+				Status:       string(report.Status),
 				LastCheck:    report.LastCheck,
 				ErrorMessage: report.ErrorMessage,
 			})
@@ -1366,16 +1366,16 @@ func (a *API) getDataSourceHealth() ([]HealthReport, error) {
 }
 
 // getMockDataSourceHealth returns mock health data for backward compatibility
-func (a *API) getMockDataSourceHealth() []HealthReport {
+func (a *API) getMockDataSourceHealth() []APIHealthReport {
 	// Use client health data if available
 	clientHealth := a.clientManager.GetClientHealth()
 	
-	sources := []HealthReport{}
+	sources := []APIHealthReport{}
 	for name, status := range clientHealth {
-		sources = append(sources, HealthReport{
+		sources = append(sources, APIHealthReport{
 			SourceType:   "data_source",
 			SourceName:   name,
-			Status:       client.LegacyToUnifiedHealth(status),
+			Status:       string(client.LegacyToUnifiedHealth(status)),
 			LastCheck:    time.Now(),
 			ErrorMessage: "Using local client health data",
 		})
@@ -1383,7 +1383,7 @@ func (a *API) getMockDataSourceHealth() []HealthReport {
 	
 	// If no clients were found, return default mock data
 	if len(sources) == 0 {
-		sources = []HealthReport{
+		sources = []APIHealthReport{
 			{
 				SourceType:   "data_source",
 				SourceName:   "Yahoo Finance",
