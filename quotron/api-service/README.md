@@ -12,10 +12,19 @@ This service provides a HTTP-based interface to financial data sources, serving 
 
 ## API Endpoints
 
+### Quote Endpoints
 - `GET /api/quote/{symbol}` - Get stock quote for a symbol
+- `POST /api/quotes/batch` - Get multiple stock quotes in a single request
+- `GET /api/quotes/history/{symbol}?days=7` - Get historical quotes for a symbol
+
+### Market Index Endpoints
 - `GET /api/index/{index}` - Get market index data
+- `POST /api/indices/batch` - Get multiple market indices in a single request
+
+### Health and Status Endpoints
 - `GET /api/health` - Check service health status
 - `GET /api/data-source/health` - Check health status of data sources
+- `GET /` - API information and documentation
 
 ## Technologies
 
@@ -50,11 +59,14 @@ docker-compose up api-service
 The API service can be configured using command-line flags:
 
 - `--port`: Port number for the HTTP server (default: 8080)
-- `--db`: PostgreSQL connection URL (default: "postgres://postgres:postgres@localhost:5433/quotron?sslmode=disable")
+- `--db`: PostgreSQL connection URL (default: "postgres://postgres:postgres@localhost:5432/quotron?sslmode=disable")
 - `--yahoo`: Use Yahoo Finance as data source (default: true)
 - `--alpha-key`: Alpha Vantage API key
 - `--yahoo-host`: Yahoo Finance proxy host (default: "localhost")
 - `--yahoo-port`: Yahoo Finance proxy port (default: 5000)
+- `--health`: Enable unified health reporting (default: false)
+- `--health-service`: Unified health service URL (empty to disable)
+- `--name`: Service name for health reporting (default: "api-service")
 
 ## Architecture
 
@@ -76,10 +88,15 @@ The API service consists of the following components:
    - Connection pooling for database efficiency
    - Timeouts to prevent hanging operations
    - Detailed health reporting
+   - Concurrent processing for batch operations
 
 3. **Client/Server Model**: Scheduler now acts as a client to the API service, making it easier to distribute across containers/machines.
 
 4. **Unified Health Monitoring**: Integration with the health service for centralized monitoring of all data sources and services.
+
+5. **Batch Processing**: Support for batch operations reduces network overhead when retrieving multiple quotes or indices.
+
+6. **Historical Data Access**: The service provides access to historical data stored in the database, enabling time-series analysis and charting.
 
 ## Testing
 
