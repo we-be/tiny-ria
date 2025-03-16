@@ -45,8 +45,27 @@ jobs:
       run: |
         python -m playwright install chromium
 
-    - name: Build API Scraper
+    - name: Download Latest CLI Release and Build API Scraper
       run: |
+        # Get the latest CLI release
+        echo "Downloading latest Quotron CLI..."
+        mkdir -p /tmp/cli
+        LATEST_RELEASE=$(curl -s https://api.github.com/repos/we-be/tiny-ria/releases/latest)
+        CLI_DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | grep -o "https://github.com/we-be/tiny-ria/releases/download/[^/]*/quotron-linux" | head -n 1)
+        
+        # If no release found, use workflow_dispatch to trigger a release
+        if [ -z "$CLI_DOWNLOAD_URL" ]; then
+          echo "No CLI release found. Please create a release first using the cli-release.yml workflow."
+          echo "You can trigger it manually from the Actions tab in GitHub."
+          exit 1
+        fi
+        
+        echo "Downloading CLI from: $CLI_DOWNLOAD_URL"
+        curl -L -o /tmp/cli/quotron "$CLI_DOWNLOAD_URL"
+        chmod +x /tmp/cli/quotron
+        cp /tmp/cli/quotron quotron/quotron
+        
+        # Build API Scraper
         cd quotron/api-scraper
         go build -o api-scraper ./cmd/main/main.go
 
@@ -58,15 +77,9 @@ jobs:
       run: |
         cd quotron
         
-        # Create a simple run script if it doesn't exist
-        if [ ! -f "api-scraper/scripts/run_proxy.sh" ]; then
-          mkdir -p api-scraper/scripts
-          echo '#!/bin/bash' > api-scraper/scripts/run_proxy.sh
-          echo '# Simple script to run the YFinance proxy server' >> api-scraper/scripts/run_proxy.sh
-          echo 'PYTHON_PATH=$(which python3)' >> api-scraper/scripts/run_proxy.sh
-          echo 'exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"' >> api-scraper/scripts/run_proxy.sh
-          chmod +x api-scraper/scripts/run_proxy.sh
-        fi
+        # Use Quotron CLI to start the proxy
+        echo "Starting Yahoo Finance Proxy using Quotron CLI..."
+        ./quotron start yfinance-proxy
         
         python tests/integration/test_integration.py --api
       
@@ -79,38 +92,11 @@ jobs:
         cd api-scraper
         pip install -r scripts/requirements.txt
         
-        # Create a simple run script if it doesn't exist
-        if [ ! -f "scripts/run_proxy.sh" ]; then
-          echo '#!/bin/bash' > scripts/run_proxy.sh
-          echo '# Simple script to run the YFinance proxy server' >> scripts/run_proxy.sh
-          echo 'PYTHON_PATH=$(which python3)' >> scripts/run_proxy.sh
-          echo 'exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"' >> scripts/run_proxy.sh
-          chmod +x scripts/run_proxy.sh
-        fi
-        
         cd ..
         
-        # Start the proxy server
-        cd api-scraper
-        ./scripts/run_proxy.sh --port 8081 &
-        PROXY_PID=$!
-        cd ..
-        
-        # Wait for proxy server to start (with timeout)
-        max_retries=30
-        retries=0
-        echo "Waiting for proxy server to start..."
-        until curl -s http://localhost:8081/health > /dev/null 2>&1 || [ $retries -eq $max_retries ]; do
-          sleep 1
-          ((retries++))
-          echo "Waiting for server... ($retries/$max_retries)"
-        done
-        
-        if [ $retries -eq $max_retries ]; then
-          echo "Error: Proxy server failed to start within timeout period"
-          exit 1
-        fi
-        echo "Proxy server started successfully!"
+        # Use Quotron CLI to start the proxy
+        echo "Starting Yahoo Finance Proxy using Quotron CLI..."
+        ./quotron start yfinance-proxy
         
         # Try Alpha Vantage first
         export ALPHA_VANTAGE_API_KEY=demo
@@ -121,13 +107,9 @@ jobs:
           python tests/integration/test_integration.py --api
         }
         
-        # Clean up: Kill the proxy server
-        kill $PROXY_PID 2>/dev/null || true
-        # Wait for process to terminate
-        wait $PROXY_PID 2>/dev/null || true
-        # Force kill if still running
-        ps -p $PROXY_PID >/dev/null 2>&1 && kill -9 $PROXY_PID 2>/dev/null || true
-        echo "Proxy server terminated"
+        # Stop the proxy server using the CLI
+        echo "Stopping Yahoo Finance Proxy..."
+        ./quotron stop yfinance-proxy
 
     # Run other integration tests
     - name: Run other integration tests
