@@ -185,61 +185,194 @@ func (sm *ServiceManager) startYFinanceProxy(ctx context.Context) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Get path to our helper script
-	helperScriptPath := filepath.Join(filepath.Dir(os.Args[0]), "cli", "pkg", "services", "start_proxy.sh")
-	
-	// If it doesn't exist at the relative path, try using the full path
-	if _, err := os.Stat(helperScriptPath); os.IsNotExist(err) {
-		// Try the executable's directory
-		exePath, err := os.Executable()
-		if err == nil {
-			helperScriptPath = filepath.Join(filepath.Dir(exePath), "cli", "pkg", "services", "start_proxy.sh")
-		}
-		
-		// If still doesn't exist, use the hard-coded path
-		if _, err := os.Stat(helperScriptPath); os.IsNotExist(err) {
-			helperScriptPath = "/home/hunter/Desktop/tiny-ria/quotron/cli/pkg/services/start_proxy.sh"
+	// Determine Python path
+	pythonPath := "python"
+	// Check for virtual environment in quotron directory first
+	venvPath := filepath.Join(sm.config.QuotronRoot, ".venv")
+	if _, err := os.Stat(filepath.Join(venvPath, "bin", "python")); err == nil {
+		pythonPath = filepath.Join(venvPath, "bin", "python")
+		fmt.Printf("Using Python from virtualenv: %s\n", pythonPath)
+	} else {
+		// Fallback to parent directory venv if exists
+		parentVenvPath := filepath.Join(sm.config.QuotronRoot, "..", ".venv")
+		if _, err := os.Stat(filepath.Join(parentVenvPath, "bin", "python")); err == nil {
+			pythonPath = filepath.Join(parentVenvPath, "bin", "python")
+			fmt.Printf("Using Python from parent virtualenv: %s\n", pythonPath)
+		} else {
+			fmt.Println("No virtualenv found, using system Python")
 		}
 	}
 	
-	// Make sure the script is executable
-	os.Chmod(helperScriptPath, 0755)
+	// Path to the Python script
+	scriptPath := filepath.Join(scriptsDir, "yfinance_proxy.py")
 	
-	// Check for virtual environment
-	venvPath := filepath.Join(sm.config.QuotronRoot, "..", ".venv")
+	// Make sure the script exists and is executable
+	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+		return fmt.Errorf("YFinance proxy script not found at %s", scriptPath)
+	}
 	
-	// Run the helper script
+	// Make script executable
+	os.Chmod(scriptPath, 0755)
+	
+	// Clear and create log file (not append)
+	logFile, err := os.OpenFile(sm.config.YFinanceLogFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer logFile.Close()
+	
+	// Write header to log file
+	fmt.Fprintf(logFile, "=== YFinance Proxy Log ===\nStarted at: %s\n\n", time.Now().Format(time.RFC3339))
+	
+	// Prepare command with arguments
 	fmt.Println("Starting YFinance Proxy...")
-	cmd := exec.CommandContext(ctx, "bash", helperScriptPath,
-		venvPath,
-		filepath.Join(scriptsDir, "yfinance_proxy.py"),
-		sm.config.YFinanceProxyHost,
-		strconv.Itoa(sm.config.YFinanceProxyPort),
-		sm.config.YFinanceLogFile,
-		sm.config.YFinanceProxyPIDFile)
 	
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to start process: %w, output: %s", err, output)
+	// First try to run the script with -v to get more verbose Python output
+	verboseCmd := exec.Command(pythonPath, "-v", scriptPath, "--help")
+	verboseOutput, _ := verboseCmd.CombinedOutput()
+	fmt.Fprintf(logFile, "=== Python Verbose Import Check ===\n%s\n", string(verboseOutput))
+	
+	// Run a script-checking command to catch syntax errors
+	checkCmd := exec.Command(pythonPath, "-m", "py_compile", scriptPath)
+	checkOutput, checkErr := checkCmd.CombinedOutput()
+	if checkErr != nil {
+		fmt.Printf("Python syntax check failed: %s\n", string(checkOutput))
+		fmt.Fprintf(logFile, "=== Python Syntax Check Failed ===\n%s\n", string(checkOutput))
+		return fmt.Errorf("Python script has syntax errors: %w", checkErr)
 	}
 	
-	// Get PID from output
-	pidStr := strings.TrimSpace(string(output))
-	pid, err := strconv.Atoi(pidStr)
+	// Try running the script in test mode to check for initialization issues
+	fmt.Println("Testing initialization...")
+	testCmd := exec.Command(pythonPath, scriptPath, "--test")
+	testCmd.Dir = scriptsDir
+	testOutput, testErr := testCmd.CombinedOutput()
+	fmt.Fprintf(logFile, "=== Initialization Test ===\n%s\n", string(testOutput))
+	if testErr != nil {
+		fmt.Printf("Initialization test failed: %s\n", string(testOutput))
+		return fmt.Errorf("script initialization failed: %w", testErr)
+	}
+	fmt.Println("Initialization successful")
+	
+	// Run actual command - now set up for proper background operation
+	cmd := exec.CommandContext(ctx, pythonPath, scriptPath, 
+		"--host", sm.config.YFinanceProxyHost,
+		"--port", strconv.Itoa(sm.config.YFinanceProxyPort))
+	
+	// Set working directory
+	cmd.Dir = scriptsDir
+	
+	// Redirect output to log file
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	
+	// Ensure the process runs in its own process group
+	// This prevents SIGINT from propagating to the child process
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+	
+	// First, check and install required packages
+	fmt.Println("Checking for required Python packages...")
+	
+	// Check and install Flask
+	checkFlask := exec.Command(pythonPath, "-c", "import flask")
+	if err := checkFlask.Run(); err != nil {
+		fmt.Println("Installing Flask package...")
+		installFlask := exec.Command(pythonPath, "-m", "pip", "install", "flask")
+		installOutput, err := installFlask.CombinedOutput()
+		if err != nil {
+			fmt.Printf("Failed to install Flask: %s\n", installOutput)
+			return fmt.Errorf("failed to install Flask: %w", err)
+		}
+		fmt.Println("Flask installed successfully")
+	}
+	
+	// Check and install yfinance
+	checkYF := exec.Command(pythonPath, "-c", "import yfinance")
+	if err := checkYF.Run(); err != nil {
+		fmt.Println("Installing yfinance package...")
+		installYF := exec.Command(pythonPath, "-m", "pip", "install", "yfinance")
+		installOutput, err := installYF.CombinedOutput()
+		if err != nil {
+			fmt.Printf("Failed to install yfinance: %s\n", installOutput)
+			return fmt.Errorf("failed to install yfinance: %w", err)
+		}
+		fmt.Println("yfinance installed successfully")
+	}
+	
+	// Start the process
+	fmt.Println("Starting YFinance Proxy process...")
+	err = cmd.Start()
 	if err != nil {
-		return fmt.Errorf("failed to parse PID: %w", err)
+		return fmt.Errorf("failed to start YFinance Proxy: %w", err)
+	}
+	
+	// Save PID
+	pid := cmd.Process.Pid
+	err = sm.savePid(sm.config.YFinanceProxyPIDFile, pid)
+	if err != nil {
+		return fmt.Errorf("failed to save PID: %w", err)
 	}
 	
 	// Add to global PID list for cleanup
 	addPid(pid)
+	
+	// Give the process a moment to start and check logs immediately for errors
+	time.Sleep(2 * time.Second)
+	
+	// Check if process is still running
+	if !isPidRunning(pid) {
+		fmt.Println("Process terminated immediately after starting! Checking logs for errors...")
+		logTail, tailErr := exec.Command("tail", "-n", "20", sm.config.YFinanceLogFile).Output()
+		if tailErr == nil && len(logTail) > 0 {
+			fmt.Printf("\nLast log entries:\n%s\n", string(logTail))
+		} else {
+			fmt.Println("No log entries found. Process may have failed to start properly.")
+		}
+		return fmt.Errorf("YFinance Proxy process terminated immediately after starting")
+	}
+	
+	// Check logs even if the process is running
+	logTail, tailErr := exec.Command("tail", "-n", "15", sm.config.YFinanceLogFile).Output()
+	if tailErr == nil && len(logTail) > 0 {
+		// Check if there are errors in the log
+		logContent := string(logTail)
+		fmt.Printf("\nStartup log entries:\n%s\n", logContent)
+		
+		if strings.Contains(logContent, "Error") || strings.Contains(logContent, "Traceback") || 
+		   strings.Contains(logContent, "Exception") {
+			fmt.Printf("\nErrors detected in startup, stopping process.\n")
+			// Kill the process since it's not going to work
+			cmd.Process.Kill()
+			return fmt.Errorf("YFinance Proxy failed to start due to errors in log")
+		}
+	} else {
+		fmt.Println("No log entries found, which is unusual.")
+	}
 
+	// Set environment variable for health service URL
+	os.Setenv("HEALTH_SERVICE_URL", sm.config.HealthServiceURL)
+	
 	// Wait for service to be available
+	fmt.Printf("Waiting for YFinance Proxy to start on %s:%d...\n", 
+		sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort)
 	err = sm.waitForService(sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort, 30*time.Second)
 	if err != nil {
+		// Get the last few lines of the log file to show the error
+		logTail, tailErr := exec.Command("tail", "-n", "20", sm.config.YFinanceLogFile).Output()
+		if tailErr == nil && len(logTail) > 0 {
+			fmt.Printf("\nLast log entries:\n%s\n", string(logTail))
+		}
+		
+		fmt.Printf("WARNING: Service started (PID %d) but not responding on port %d.\n", 
+			pid, sm.config.YFinanceProxyPort)
+		fmt.Printf("Check logs at %s for errors.\n", sm.config.YFinanceLogFile)
+		
+		// Return error but don't fail
 		return fmt.Errorf("service failed to start: %w", err)
 	}
 
-	fmt.Printf("YFinance Proxy started successfully with PID %d\n", cmd.Process.Pid)
+	fmt.Printf("YFinance Proxy started successfully with PID %d\n", pid)
 	return nil
 }
 
@@ -688,13 +821,30 @@ func (sm *ServiceManager) checkServiceResponding(host string, port int) bool {
 // waitForService waits for a service to be available
 func (sm *ServiceManager) waitForService(host string, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	attempts := 0
+	startTime := time.Now()
+	
 	for time.Now().Before(deadline) {
+		attempts++
 		if sm.checkServiceResponding(host, port) {
+			elapsed := time.Since(startTime).Seconds()
+			fmt.Printf("Service available after %.1f seconds (%d attempts)\n", elapsed, attempts)
 			return nil
 		}
+		
+		// Check if the process has died while waiting
+		if attempts%5 == 0 { // Check every 5 seconds
+			// For now we'll just display a waiting message
+			fmt.Printf("Waiting for service to respond (%.1f seconds elapsed)...\n", 
+				time.Since(startTime).Seconds())
+		}
+		
 		time.Sleep(1 * time.Second)
 	}
-	return fmt.Errorf("service not available after %s", timeout)
+	
+	// Timeout occurred
+	return fmt.Errorf("service not available after %s (%d connection attempts)", 
+		timeout, attempts)
 }
 
 // savePid saves a PID to a file
