@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -668,6 +669,115 @@ func (sm *ServiceManager) checkServiceRunning(pidFile, pattern string, host stri
 	}
 
 	return false
+}
+
+// ListSchedulerJobs returns a list of jobs in the scheduler
+func (sm *ServiceManager) ListSchedulerJobs() ([]map[string]interface{}, error) {
+	// Check if scheduler is running
+	if !sm.checkServiceRunning(sm.config.SchedulerPIDFile, "scheduler", "", 0) {
+		return nil, fmt.Errorf("scheduler is not running")
+	}
+
+	// Get the config file path
+	configFile := filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
+	
+	// Read the config file
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read scheduler config: %w", err)
+	}
+	
+	// Parse the config file to get job information
+	var config struct {
+		Schedules map[string]map[string]interface{} `json:"schedules"`
+	}
+	
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse scheduler config: %w", err)
+	}
+	
+	// Convert to a list of jobs
+	jobs := make([]map[string]interface{}, 0, len(config.Schedules))
+	for name, job := range config.Schedules {
+		jobInfo := map[string]interface{}{
+			"name": name,
+		}
+		
+		// Copy over job properties
+		for k, v := range job {
+			jobInfo[k] = v
+		}
+		
+		jobs = append(jobs, jobInfo)
+	}
+	
+	return jobs, nil
+}
+
+// RunSchedulerJob runs a specific scheduler job
+func (sm *ServiceManager) RunSchedulerJob(jobName string) error {
+	// Check if scheduler is running
+	if !sm.checkServiceRunning(sm.config.SchedulerPIDFile, "scheduler", "", 0) {
+		return fmt.Errorf("scheduler is not running")
+	}
+	
+	// Run the job using the scheduler binary
+	fmt.Printf("Running scheduler job '%s'...\n", jobName)
+	schedulerDir := sm.config.SchedulerPath
+	schedulerBin := filepath.Join(schedulerDir, "scheduler")
+	configFile := filepath.Join(sm.config.QuotronRoot, "scheduler-config.json")
+	
+	// Build the command
+	cmd := exec.Command(schedulerBin, "--config", configFile, "--run-job", jobName)
+	cmd.Dir = schedulerDir
+	
+	// Set up output redirection
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	// Run the command
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to run job '%s': %w", jobName, err)
+	}
+	
+	fmt.Printf("Job '%s' executed successfully\n", jobName)
+	return nil
+}
+
+// GetSchedulerNextRuns returns the next run time for each job
+func (sm *ServiceManager) GetSchedulerNextRuns() (map[string]string, error) {
+	// Check if scheduler is running
+	pid, err := sm.readPid(sm.config.SchedulerPIDFile)
+	if err != nil || !isPidRunning(pid) {
+		return nil, fmt.Errorf("scheduler is not running")
+	}
+	
+	// Look for scheduler log entries showing next run times
+	logFile := sm.config.SchedulerLogFile
+	
+	// Read the log file
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read scheduler log: %w", err)
+	}
+	
+	// Parse the log to find next run times
+	logLines := strings.Split(string(logData), "\n")
+	nextRuns := make(map[string]string)
+	
+	// Look for lines like: "- stock_quotes: Next run at 2025-03-16T09:00:00Z"
+	for _, line := range logLines {
+		if strings.Contains(line, "Next run at") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 3 {
+				jobName := strings.TrimSpace(strings.TrimPrefix(parts[0], "-"))
+				timeStr := strings.TrimSpace(strings.Join(parts[2:], ":"))
+				nextRuns[jobName] = timeStr
+			}
+		}
+	}
+	
+	return nextRuns, nil
 }
 
 // checkServiceResponding checks if a service is responding on the given host and port

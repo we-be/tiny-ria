@@ -99,6 +99,8 @@ func main() {
 		handleTestCommand(ctx, commandArgs)
 	case "import-sp500":
 		handleImportSP500Command(ctx)
+	case "scheduler":
+		handleSchedulerCommand(ctx, commandArgs)
 	case "help":
 		usage()
 	default:
@@ -127,6 +129,7 @@ func usage() {
 	fmt.Println("  status              Show status of all services")
 	fmt.Println("  test [TEST]         Run tests (all or specified test)")
 	fmt.Println("  import-sp500        Import S&P 500 data")
+	fmt.Println("  scheduler <ACTION>  Manage or interact with the scheduler")
 	fmt.Println("  health              Check health of services")
 	fmt.Println("  help                Show this help message")
 	fmt.Println()
@@ -324,6 +327,100 @@ func handleImportSP500Command(ctx context.Context) {
 		log.Fatalf("Failed to import S&P 500 data: %v", err)
 	}
 	fmt.Println("S&P 500 data imported successfully!")
+}
+
+// handleSchedulerCommand processes the 'scheduler' command which allows interaction with the running scheduler
+func handleSchedulerCommand(ctx context.Context, args []string) {
+	if len(args) == 0 {
+		fmt.Println("Missing scheduler sub-command. Available commands: jobs, run-job, status")
+		return
+	}
+
+	manager := services.NewServiceManager(config)
+	subCommand := args[0]
+
+	switch subCommand {
+	case "jobs":
+		// List all jobs in the scheduler
+		jobs, err := manager.ListSchedulerJobs()
+		if err != nil {
+			log.Fatalf("Failed to list scheduler jobs: %v", err)
+		}
+
+		fmt.Println("=== Scheduler Jobs ===")
+		for _, job := range jobs {
+			enabled, _ := job["enabled"].(bool)
+			cron, _ := job["cron"].(string)
+			desc, _ := job["description"].(string)
+			
+			enabledStatus := "⚪ disabled"
+			if enabled {
+				enabledStatus = "🟢 enabled"
+			}
+			
+			fmt.Printf("%s [%s] %s - %s\n", job["name"], enabledStatus, cron, desc)
+		}
+
+	case "next-runs":
+		// Show when jobs will run next
+		nextRuns, err := manager.GetSchedulerNextRuns()
+		if err != nil {
+			log.Fatalf("Failed to get next run times: %v", err)
+		}
+
+		fmt.Println("=== Scheduler Next Run Times ===")
+		if len(nextRuns) == 0 {
+			fmt.Println("No scheduled jobs found or scheduler just started")
+		} else {
+			for job, nextRun := range nextRuns {
+				fmt.Printf("%s: %s\n", job, nextRun)
+			}
+		}
+
+	case "run-job":
+		// Run a specific job immediately
+		if len(args) < 2 {
+			log.Fatalf("Job name required")
+		}
+		jobName := args[1]
+		
+		err := manager.RunSchedulerJob(jobName)
+		if err != nil {
+			log.Fatalf("Failed to run job '%s': %v", jobName, err)
+		}
+
+	case "status":
+		// Show scheduler status
+		status, err := manager.GetServiceStatus()
+		if err != nil {
+			log.Fatalf("Failed to get service status: %v", err)
+		}
+
+		fmt.Println("=== Scheduler Status ===")
+		fmt.Printf("Scheduler: %s\n", formatStatus(status.Scheduler))
+		
+		// If scheduler is running, get job information
+		if status.Scheduler {
+			// Get the number of jobs
+			jobs, err := manager.ListSchedulerJobs()
+			if err == nil {
+				fmt.Printf("Jobs configured: %d\n", len(jobs))
+			}
+			
+			// Get next run times
+			nextRuns, err := manager.GetSchedulerNextRuns()
+			if err == nil && len(nextRuns) > 0 {
+				fmt.Println("\nNext scheduled runs:")
+				for job, nextRun := range nextRuns {
+					fmt.Printf("- %s: %s\n", job, nextRun)
+				}
+			}
+		}
+
+	default:
+		fmt.Printf("Unknown scheduler sub-command: %s\n", subCommand)
+		fmt.Println("Available commands: jobs, run-job, next-runs, status")
+	}
 }
 
 // formatStatus formats a service status as a colored string
