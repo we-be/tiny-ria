@@ -7,17 +7,23 @@
   - `api-scraper/`: Golang-based API scraping
   - `browser-scraper/`: Python-based browser automation (Playwright/Selenium)
   - `auth-engine/`: Authentication and session management
-  - `cli/`: Unified command-line interface for managing services
+  - `cli/`: Unified command-line interface for managing services (MAIN ENTRY POINT)
   - `health/`: Service health monitoring and reporting
   - `ingest-pipeline/`: ETL processing
   - `events/`: Event-driven data distribution
 
 ## Commands
-- CLI: `./quotron [command] [options]`
+IMPORTANT: Always use the CLI as the primary way to interact with Quotron. DO NOT create custom scripts unless absolutely necessary.
+
+- CLI (primary interface): `./quotron [command] [options]`
 - Start services: `./quotron start [service...]`
 - Stop services: `./quotron stop [service...]`
 - Check health: `./quotron health`
 - Run tests: `./quotron test [test_type]`
+- Golang tests: `./quotron test go`
+- Python tests: `./quotron test python`
+
+Only if CLI functionality isn't available:
 - Golang (api-scraper): `cd quotron/api-scraper && go test ./...`
 - Python (browser/auth): `cd quotron/{module} && python -m pytest`
 - Single test: `python -m pytest path/to/test_file.py::test_function`
