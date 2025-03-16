@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -164,7 +163,8 @@ func (j *CryptoQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) e
 	// Set exchange to CRYPTO
 	quote.Exchange = "CRYPTO"
 	
-	if err := redisClient.PublishCryptoQuote(ctx, quote); err != nil {
+	quoteData := client.StockQuoteToQuoteData(quote)
+	if err := redisClient.PublishCryptoQuote(ctx, quoteData); err != nil {
 		log.Printf("Warning: failed to publish to Redis: %v", err)
 	} else {
 		log.Printf("Published crypto quote for %s to Redis", symbol)
@@ -235,7 +235,8 @@ func (j *CryptoQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) err
 				redisClient := client.NewRedisClient("")
 				defer redisClient.Close()
 				
-				if err := redisClient.PublishCryptoQuote(ctx, cryptoQuote); err != nil {
+				quoteData := client.StockQuoteToQuoteData(cryptoQuote)
+				if err := redisClient.PublishCryptoQuote(ctx, quoteData); err != nil {
 					log.Printf("Warning: failed to publish to Redis: %v", err)
 				} else {
 					log.Printf("Published crypto quote for %s to Redis", symbol)
