@@ -15,8 +15,8 @@ const (
 	DefaultRedisAddr   = "localhost:6379"
 )
 
-// StockQuote represents a stock quote
-type StockQuote struct {
+// QuoteData represents a quote data structure used in Redis
+type QuoteData struct {
 	Symbol        string    `json:"symbol"`
 	Price         float64   `json:"price"`
 	Change        float64   `json:"change"`
@@ -53,7 +53,7 @@ func (r *RedisClient) Close() error {
 }
 
 // PublishStockQuote publishes a stock quote to Redis
-func (r *RedisClient) PublishStockQuote(ctx context.Context, quote *StockQuote) error {
+func (r *RedisClient) PublishStockQuote(ctx context.Context, quote *QuoteData) error {
 	// Convert to JSON
 	data, err := json.Marshal(quote)
 	if err != nil {
@@ -80,7 +80,7 @@ func (r *RedisClient) GetSubscriberCount(ctx context.Context, channel string) (i
 }
 
 // PublishCryptoQuote publishes a cryptocurrency quote to Redis
-func (r *RedisClient) PublishCryptoQuote(ctx context.Context, quote *StockQuote) error {
+func (r *RedisClient) PublishCryptoQuote(ctx context.Context, quote *QuoteData) error {
 	// Convert to JSON
 	data, err := json.Marshal(quote)
 	if err != nil {
@@ -94,4 +94,18 @@ func (r *RedisClient) PublishCryptoQuote(ctx context.Context, quote *StockQuote)
 	}
 	
 	return nil
+}
+
+// StockQuoteToQuoteData converts a StockQuote to QuoteData
+func StockQuoteToQuoteData(quote *StockQuote) *QuoteData {
+	return &QuoteData{
+		Symbol:        quote.Symbol,
+		Price:         quote.Price,
+		Change:        quote.Change,
+		ChangePercent: quote.ChangePercent,
+		Volume:        quote.Volume,
+		Timestamp:     quote.Timestamp,
+		Exchange:      quote.Exchange,
+		Source:        quote.Source,
+	}
 }
