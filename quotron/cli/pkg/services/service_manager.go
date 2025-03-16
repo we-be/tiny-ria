@@ -129,9 +129,27 @@ func (sm *ServiceManager) StopServices(services ServiceList) error {
 	}
 
 	if services.YFinanceProxy {
-		err := sm.stopService("YFinance Proxy", sm.config.YFinanceProxyPIDFile, "python.*yfinance_proxy.py")
-		if err != nil {
-			return fmt.Errorf("failed to stop YFinance Proxy: %w", err)
+		// Try stopping with daemon script first
+		daemonPath := filepath.Join(sm.config.QuotronRoot, "api-scraper", "scripts", "daemon_proxy.sh")
+		if _, statErr := os.Stat(daemonPath); os.IsNotExist(statErr) {
+			// Fall back to traditional method if daemon script not available
+			err := sm.stopService("YFinance Proxy", sm.config.YFinanceProxyPIDFile, "python.*yfinance_proxy.py")
+			if err != nil {
+				return fmt.Errorf("failed to stop YFinance Proxy: %w", err)
+			}
+		} else {
+			fmt.Println("Stopping YFinance Proxy using daemon script...")
+			stopCmd := exec.Command(daemonPath, "stop")
+			stopCmd.Stdout = os.Stdout
+			stopCmd.Stderr = os.Stderr
+			if err := stopCmd.Run(); err != nil {
+				fmt.Printf("Warning: Daemon script returned error: %v\n", err)
+				// Try traditional method as fallback
+				err := sm.stopService("YFinance Proxy", sm.config.YFinanceProxyPIDFile, "python.*yfinance_proxy.py")
+				if err != nil {
+					return fmt.Errorf("failed to stop YFinance Proxy: %w", err)
+				}
+			}
 		}
 	}
 
@@ -175,8 +193,19 @@ func (sm *ServiceManager) startYFinanceProxy(ctx context.Context) error {
 		return nil
 	}
 	
-	// Kill any existing process
-	sm.stopService("YFinance Proxy", sm.config.YFinanceProxyPIDFile, "python.*yfinance_proxy.py")
+	// Stop any existing daemon process
+	daemonPath := filepath.Join(sm.config.QuotronRoot, "api-scraper", "scripts", "daemon_proxy.sh")
+	if _, statErr := os.Stat(daemonPath); os.IsNotExist(statErr) {
+		fmt.Printf("Warning: daemon script not found at %s\n", daemonPath)
+		// Fall back to traditional method if daemon script isn't available
+		sm.stopService("YFinance Proxy", sm.config.YFinanceProxyPIDFile, "python.*yfinance_proxy.py")
+	} else {
+		fmt.Println("Stopping existing YFinance Proxy service...")
+		stopCmd := exec.Command(daemonPath, "stop")
+		stopCmd.Stdout = os.Stdout
+		stopCmd.Stderr = os.Stderr
+		_ = stopCmd.Run() // Ignore errors, we're stopping anyway
+	}
 	
 	// Path setup
 	scriptsDir := filepath.Join(sm.config.QuotronRoot, "api-scraper", "scripts")
@@ -202,69 +231,44 @@ func (sm *ServiceManager) startYFinanceProxy(ctx context.Context) error {
 	}
 	defer logFile.Close()
 	
-	// Command with explicit host and port settings
-	fmt.Println("Starting YFinance Proxy...")
-	cmd := exec.CommandContext(ctx, pythonPath, scriptPath,
+	// Use the daemon script instead of directly running Python
+	daemonPath = filepath.Join(scriptsDir, "daemon_proxy.sh")
+	if _, statErr := os.Stat(daemonPath); os.IsNotExist(statErr) {
+		return fmt.Errorf("daemon script not found at %s", daemonPath)
+	}
+	
+	// Make script executable
+	_ = os.Chmod(daemonPath, 0755)
+	
+	fmt.Println("Starting YFinance Proxy daemon...")
+	cmd := exec.CommandContext(ctx, daemonPath, 
 		"--host", sm.config.YFinanceProxyHost,
 		"--port", strconv.Itoa(sm.config.YFinanceProxyPort))
 	cmd.Dir = scriptsDir
 	
-	// Using direct logging rather than pipes
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	// Capture output directly to terminal
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	
-	// Add important environment variables
+	// Set health service URL in environment
 	cmd.Env = append(os.Environ(), 
-		"PYTHONUNBUFFERED=1",  // Force unbuffered output for better logs
-		"LC_ALL=C.UTF-8",      // Ensure proper encoding
 		fmt.Sprintf("HEALTH_SERVICE_URL=%s", sm.config.HealthServiceURL))
 	
-	// Prevent signal propagation
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
-	
-	// Start it
-	err = cmd.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start YFinance Proxy: %w", err)
-	}
-	
-	// Save PID and add to cleanup list
-	pid := cmd.Process.Pid
-	sm.savePid(sm.config.YFinanceProxyPIDFile, pid)
-	addPid(pid)
-	
-	// Give it a moment to start
-	fmt.Println("Waiting for YFinance Proxy to initialize...")
-	time.Sleep(3 * time.Second)
-	
-	// Check if still running
-	if !isPidRunning(pid) {
+	// Run the daemon script (will run and wait for HTTP response)
+	runErr := cmd.Run()
+	if runErr != nil {
+		fmt.Printf("Error: Daemon script returned non-zero exit code: %v\n", runErr)
 		logTail, _ := exec.Command("tail", "-n", "20", sm.config.YFinanceLogFile).Output()
-		fmt.Printf("\nError: process terminated unexpectedly\n%s\n", string(logTail))
-		return fmt.Errorf("YFinance Proxy process terminated immediately after starting")
+		if len(logTail) > 0 {
+			fmt.Printf("\nLast log entries:\n%s\n", string(logTail))
+		}
+		return fmt.Errorf("failed to start YFinance Proxy daemon: %w", runErr)
 	}
 	
-	// Wait for service to be responsive
-	fmt.Printf("Waiting for YFinance Proxy to respond on %s:%d...\n", 
-		sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort)
-	
-	// Extended wait time for slower machines
-	err = sm.waitForService(sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort, 45*time.Second)
-	if err != nil {
-		fmt.Printf("WARNING: Service started (PID %d) but not responding on port %d.\n", 
-			pid, sm.config.YFinanceProxyPort)
-		fmt.Printf("The service may still be starting up. You can check the UI manually at http://%s:%d\n", 
-			sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort)
-		fmt.Printf("Or check logs at %s for errors.\n", sm.config.YFinanceLogFile)
-		
-		// Return success anyway, since we know the process is running
-		return nil
-	}
-	
-	fmt.Printf("YFinance Proxy started successfully with PID %d\n", pid)
+	// If we're here, the daemon script has successfully started the proxy
+	fmt.Printf("YFinance Proxy daemon started successfully\n")
 	fmt.Printf("UI available at http://%s:%d\n", sm.config.YFinanceProxyHost, sm.config.YFinanceProxyPort)
+	fmt.Printf("Log file: %s\n", sm.config.YFinanceLogFile)
 	return nil
 }
 
