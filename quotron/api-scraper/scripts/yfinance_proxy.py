@@ -696,6 +696,21 @@ def index():
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
             }
+            
+            a {
+                text-decoration: none;
+                color: var(--accent-color);
+            }
+            
+            a:hover {
+                text-decoration: underline;
+            }
+            
+            .symbol-link {
+                cursor: pointer;
+                display: inline-block;
+                margin: 0 2px;
+            }
         </style>
     </head>
     <body>
@@ -721,6 +736,14 @@ def index():
                         <button id="get-quote">Get Quote</button>
                         <div class="loader" id="quote-loader"></div>
                     </div>
+                    <div style="margin-top: 10px; font-size: 0.85em;">
+                        Popular symbols: 
+                        <a href="#" class="symbol-link" data-type="quote" data-symbol="AAPL">AAPL</a> | 
+                        <a href="#" class="symbol-link" data-type="quote" data-symbol="MSFT">MSFT</a> | 
+                        <a href="#" class="symbol-link" data-type="quote" data-symbol="GOOGL">GOOGL</a> | 
+                        <a href="#" class="symbol-link" data-type="quote" data-symbol="AMZN">AMZN</a> | 
+                        <a href="#" class="symbol-link" data-type="quote" data-symbol="TSLA">TSLA</a>
+                    </div>
                     <div id="quote-result" class="hidden">
                         <pre id="quote-data"></pre>
                     </div>
@@ -732,6 +755,13 @@ def index():
                         <input type="text" id="market-symbol" placeholder="Enter index symbol (e.g., ^GSPC)">
                         <button id="get-market">Get Index</button>
                         <div class="loader" id="market-loader"></div>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 0.85em;">
+                        Popular indices: 
+                        <a href="#" class="symbol-link" data-type="market" data-symbol="^GSPC">S&P 500</a> | 
+                        <a href="#" class="symbol-link" data-type="market" data-symbol="^DJI">Dow Jones</a> | 
+                        <a href="#" class="symbol-link" data-type="market" data-symbol="^IXIC">NASDAQ</a> | 
+                        <a href="#" class="symbol-link" data-type="market" data-symbol="^RUT">Russell 2000</a>
                     </div>
                     <div id="market-result" class="hidden">
                         <pre id="market-data"></pre>
@@ -924,6 +954,23 @@ def index():
                     if (e.key === 'Enter') {
                         document.getElementById('get-market').click();
                     }
+                });
+                
+                // Handle quick symbol links
+                document.querySelectorAll('.symbol-link').forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const type = link.getAttribute('data-type');
+                        const symbol = link.getAttribute('data-symbol');
+                        
+                        if (type === 'quote') {
+                            document.getElementById('stock-symbol').value = symbol;
+                            document.getElementById('get-quote').click();
+                        } else if (type === 'market') {
+                            document.getElementById('market-symbol').value = symbol;
+                            document.getElementById('get-market').click();
+                        }
+                    });
                 });
             }
             
