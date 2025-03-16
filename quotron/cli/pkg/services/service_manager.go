@@ -393,7 +393,14 @@ echo $! > %s
 
 // startScheduler starts the scheduler directly without shell scripts
 func (sm *ServiceManager) startScheduler(ctx context.Context) error {
-	// First kill any existing processes
+	// First check if scheduler is already running
+	cmd := exec.Command("pgrep", "-f", "scheduler --config")
+	if err := cmd.Run(); err == nil {
+		fmt.Println("Scheduler is already running")
+		return nil
+	}
+	
+	// Kill any existing processes to be sure
 	exec.Command("pkill", "-f", "scheduler").Run()
 	
 	// Remove any stale PID files
