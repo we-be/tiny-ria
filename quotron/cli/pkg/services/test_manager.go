@@ -163,8 +163,8 @@ func (tm *TestManager) TestAPIService(ctx context.Context) error {
 	}
 
 	// Check for expected fields
-	if _, ok := indexResponse["symbol"]; !ok {
-		return fmt.Errorf("index response missing symbol field")
+	if _, ok := indexResponse["index_name"]; !ok {
+		return fmt.Errorf("index response missing index_name field")
 	}
 
 	return nil

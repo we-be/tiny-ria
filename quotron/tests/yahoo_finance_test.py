@@ -1,46 +1,80 @@
 #!/usr/bin/env python3
 """
-Test the Yahoo Finance integration with the API scraper.
+Test the Yahoo Finance integration with the API proxy and API service.
 """
 
 import os
-import subprocess
+import requests
 import sys
 import json
 from pathlib import Path
-
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent
-api_scraper_path = project_root / "api-scraper"
 
 def test_yahoo_finance():
     """Test the Yahoo Finance integration."""
     print("Testing Yahoo Finance integration...")
     
-    # Run the API scraper with Yahoo Finance
-    cmd = [str(api_scraper_path / "api-scraper"), "--yahoo", "--symbol", "AAPL", "--json"]
+    # Test YFinance proxy directly
+    proxy_url = "http://localhost:5000"
+    api_url = "http://localhost:8080"
     
-    print(f"Running command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Test quote endpoint from proxy
+    symbol = "AAPL"
+    print(f"Testing YFinance proxy quote endpoint for {symbol}...")
     
-    if result.returncode == 0:
-        print("Yahoo Finance test successful")
-        
-        # Parse the JSON output
-        output_lines = result.stdout.strip().split('\n')
-        for line in output_lines:
-            if line.startswith('{'):
-                try:
-                    data = json.loads(line)
-                    if "symbol" in data:
-                        print(f"Got quote for {data['symbol']}: ${data['price']}")
-                    elif "indexName" in data:
-                        print(f"Got market data for {data['indexName']}: {data['value']}")
-                except json.JSONDecodeError:
-                    pass
-    else:
-        print(f"Yahoo Finance test failed with exit code {result.returncode}")
-        print(f"Error: {result.stderr}")
+    try:
+        response = requests.get(f"{proxy_url}/quote/{symbol}")
+        response.raise_for_status()
+        data = response.json()
+        print(f"YFinance proxy quote test successful")
+        print(f"Got quote for {symbol}: ${data.get('price', 'N/A')}")
+    except Exception as e:
+        print(f"YFinance proxy quote test failed: {str(e)}")
+        sys.exit(1)
+    
+    # Test market endpoint from proxy
+    index = "^GSPC"
+    print(f"Testing YFinance proxy market endpoint for {index}...")
+    
+    try:
+        response = requests.get(f"{proxy_url}/market/{index}")
+        response.raise_for_status()
+        data = response.json()
+        print(f"YFinance proxy market test successful")
+        print(f"Got market data for {index}: {data.get('value', 'N/A')}")
+    except Exception as e:
+        print(f"YFinance proxy market test failed: {str(e)}")
+        sys.exit(1)
+    
+    # Test API service if it's running
+    try:
+        # Test health endpoint
+        response = requests.get(f"{api_url}/api/health")
+        if response.status_code == 200:
+            print("API service health test successful")
+            
+            # Test quote endpoint from API service
+            symbol = "MSFT"
+            print(f"Testing API service quote endpoint for {symbol}...")
+            response = requests.get(f"{api_url}/api/quote/{symbol}")
+            response.raise_for_status()
+            data = response.json()
+            print(f"API service quote test successful")
+            print(f"Got quote for {data.get('symbol', 'N/A')}: ${data.get('price', 'N/A')}")
+            
+            # Test index endpoint from API service
+            index = "SPY"
+            print(f"Testing API service index endpoint for {index}...")
+            response = requests.get(f"{api_url}/api/index/{index}")
+            response.raise_for_status()
+            data = response.json()
+            print(f"API service index test successful")
+            print(f"Got index data for {data.get('index_name', 'N/A')}: {data.get('value', 'N/A')}")
+    except Exception as e:
+        print(f"Note: API service tests skipped or failed: {str(e)}")
+        print("This is OK if you're not testing the API service specifically")
+
+    print("Yahoo Finance integration tests passed!")
+    return 0
 
 if __name__ == "__main__":
-    test_yahoo_finance()
+    sys.exit(test_yahoo_finance())

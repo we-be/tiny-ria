@@ -8,6 +8,7 @@
 /quotron/cli/quotron
 /quotron/api-scraper/api-scraper
 /quotron/api-scraper/main
+/quotron/api-service/api-service
 /quotron/scheduler/scheduler
 /quotron/scheduler/main
 /quotron/etl/etlcli
