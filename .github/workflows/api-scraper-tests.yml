@@ -62,11 +62,11 @@ jobs:
         if [ ! -f "api-scraper/scripts/run_proxy.sh" ]; then
           mkdir -p api-scraper/scripts
           cat > api-scraper/scripts/run_proxy.sh << 'EOF'
-#!/bin/bash
-# Simple script to run the YFinance proxy server
-PYTHON_PATH=$(which python3)
-exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
-EOF
+          #!/bin/bash
+          # Simple script to run the YFinance proxy server
+          PYTHON_PATH=$(which python3)
+          exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
+          EOF
           chmod +x api-scraper/scripts/run_proxy.sh
         fi
         
@@ -84,11 +84,11 @@ EOF
         # Create a simple run script if it doesn't exist
         if [ ! -f "scripts/run_proxy.sh" ]; then
           cat > scripts/run_proxy.sh << 'EOF'
-#!/bin/bash
-# Simple script to run the YFinance proxy server
-PYTHON_PATH=$(which python3)
-exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
-EOF
+          #!/bin/bash
+          # Simple script to run the YFinance proxy server
+          PYTHON_PATH=$(which python3)
+          exec $PYTHON_PATH $PWD/scripts/yfinance_proxy.py "$@"
+          EOF
           chmod +x scripts/run_proxy.sh
         fi
         
