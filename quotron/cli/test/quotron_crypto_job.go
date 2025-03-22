@@ -17,9 +17,8 @@ import (
 
 const (
 	YahooAPIScraperPath = "/home/hunter/Desktop/tiny-ria/quotron/api-scraper/api-scraper"
-	CryptoChannel       = "quotron:crypto"     // Legacy pub/sub channel
-	CryptoStream        = "quotron:crypto:stream" // New stream name
-	StreamMaxLen        = 1000                 // Maximum number of messages to keep in the stream
+	CryptoStream        = "quotron:crypto:stream" // Redis stream name
+	StreamMaxLen        = 1000                   // Maximum number of messages to keep in the stream
 )
 
 // CryptoQuote represents a cryptocurrency quote
@@ -141,10 +140,10 @@ func (j *CryptoQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) e
 	quote.Source = "api-service"
 	quote.Exchange = "CRYPTO"
 	
-	// Publish to Redis
-	err = j.publishToRedis(ctx, &quote)
+	// Publish to Redis Stream
+	err = j.publishToRedisStream(ctx, &quote)
 	if err != nil {
-		return fmt.Errorf("error publishing to Redis: %v", err)
+		return fmt.Errorf("error publishing to Redis Stream: %v", err)
 	}
 	
 	// Cleanup
@@ -188,10 +187,10 @@ func (j *CryptoQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) err
 	quote.Source = "yahoo-finance"
 	quote.Exchange = "CRYPTO"
 	
-	// Publish to Redis
-	err = j.publishToRedis(ctx, &quote)
+	// Publish to Redis Stream
+	err = j.publishToRedisStream(ctx, &quote)
 	if err != nil {
-		return fmt.Errorf("error publishing to Redis: %v", err)
+		return fmt.Errorf("error publishing to Redis Stream: %v", err)
 	}
 	
 	// Cleanup
@@ -199,8 +198,8 @@ func (j *CryptoQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) err
 	return nil
 }
 
-// publishToRedis publishes a quote to both Redis PubSub and Stream
-func (j *CryptoQuoteJob) publishToRedis(ctx context.Context, quote *CryptoQuote) error {
+// publishToRedisStream publishes a quote to Redis Stream
+func (j *CryptoQuoteJob) publishToRedisStream(ctx context.Context, quote *CryptoQuote) error {
 	// Connect to Redis
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -213,15 +212,8 @@ func (j *CryptoQuoteJob) publishToRedis(ctx context.Context, quote *CryptoQuote)
 		return fmt.Errorf("error marshaling quote: %v", err)
 	}
 	
-	// Publish to legacy PubSub channel for backward compatibility
-	err = client.Publish(ctx, CryptoChannel, string(data)).Err()
-	if err != nil {
-		return fmt.Errorf("error publishing to PubSub: %v", err)
-	}
-	log.Printf("Published to Redis PubSub channel %s", CryptoChannel)
-	
-	// Also publish to Stream (more robust)
-	_, err = client.XAdd(ctx, &redis.XAddArgs{
+	// Publish to Redis Stream
+	result, err := client.XAdd(ctx, &redis.XAddArgs{
 		Stream: CryptoStream,
 		ID:     "*", // Auto-generate ID
 		Values: map[string]interface{}{
@@ -231,9 +223,9 @@ func (j *CryptoQuoteJob) publishToRedis(ctx context.Context, quote *CryptoQuote)
 	}).Result()
 	
 	if err != nil {
-		return fmt.Errorf("error publishing to Stream: %v", err)
+		return fmt.Errorf("error publishing to Redis Stream: %v", err)
 	}
-	log.Printf("Published to Redis Stream %s", CryptoStream)
+	log.Printf("Published to Redis Stream %s with ID %s", CryptoStream, result)
 	
 	return nil
 }
