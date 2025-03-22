@@ -122,10 +122,6 @@ func (c *YahooProxyClient) Stop() {
 
 // GetStockQuote fetches a stock quote from the Yahoo Finance proxy
 func (c *YahooProxyClient) GetStockQuote(ctx context.Context, symbol string) (*models.StockQuote, error) {
-	// Intentionally introducing an error to test the API scraper badge failure status
-	return nil, errors.New("intentional error to test badge failure status")
-
-	// The code below is unreachable due to the error above
 	// Construct the URL with path parameter
 	queryURL, err := url.Parse(c.proxyURL + "/quote/" + symbol)
 	if err != nil {
