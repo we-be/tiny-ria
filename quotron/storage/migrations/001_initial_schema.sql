@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Create enum types
 CREATE TYPE data_source AS ENUM ('api-scraper', 'browser-scraper', 'manual');
-CREATE TYPE exchange AS ENUM ('NYSE', 'NASDAQ', 'AMEX', 'OTC', 'OTHER');
+CREATE TYPE exchange AS ENUM ('NYSE', 'NASDAQ', 'AMEX', 'OTC', 'OTHER', 'CRYPTO');
 
 -- Create a table for stock quotes
 CREATE TABLE stock_quotes (
@@ -28,7 +28,7 @@ CREATE TABLE stock_quotes (
 -- Create a table for market indices
 CREATE TABLE market_indices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(50) NOT NULL,
+    index_name VARCHAR(50) NOT NULL,
     value DECIMAL(19, 4) NOT NULL CHECK (value >= 0),
     change DECIMAL(19, 4) NOT NULL,
     change_percent DECIMAL(10, 4) NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE batch_statistics (
 CREATE INDEX idx_stock_quotes_symbol ON stock_quotes(symbol);
 CREATE INDEX idx_stock_quotes_timestamp ON stock_quotes(timestamp);
 CREATE INDEX idx_stock_quotes_batch_id ON stock_quotes(batch_id);
-CREATE INDEX idx_market_indices_name ON market_indices(name);
+CREATE INDEX idx_market_indices_index_name ON market_indices(index_name);
 CREATE INDEX idx_market_indices_timestamp ON market_indices(timestamp);
 CREATE INDEX idx_market_indices_batch_id ON market_indices(batch_id);
 CREATE INDEX idx_data_batches_status ON data_batches(status);
@@ -83,9 +83,9 @@ ORDER BY symbol, timestamp DESC;
 
 -- Create a view for the latest market indices
 CREATE VIEW latest_market_indices AS
-SELECT DISTINCT ON (name) *
+SELECT DISTINCT ON (index_name) *
 FROM market_indices
-ORDER BY name, timestamp DESC;
+ORDER BY index_name, timestamp DESC;
 
 -- Down migration (for rollback)
 -- The down migration would be in a separate file named 001_initial_schema_down.sql

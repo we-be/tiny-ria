@@ -1,8 +1,8 @@
 -- Migration: 006_crypto_quotes.sql
 -- Description: Add support for cryptocurrency quotes
 
--- Update the exchange enum to include CRYPTO
-ALTER TYPE exchange ADD VALUE IF NOT EXISTS 'CRYPTO';
+-- Note: CRYPTO is now included in the initial enum definition
+-- in 001_initial_schema.sql
 
 -- Create a dedicated view for cryptocurrency quotes (using the existing stock_quotes table)
 CREATE VIEW crypto_quotes AS

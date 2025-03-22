@@ -15,20 +15,8 @@ CREATE TABLE IF NOT EXISTS stock_quotes (
 -- Create index on symbol and timestamp for faster queries
 CREATE INDEX IF NOT EXISTS idx_stock_quotes_symbol_timestamp ON stock_quotes(symbol, timestamp);
 
--- Create table for market indices
-CREATE TABLE IF NOT EXISTS market_indices (
-    id SERIAL PRIMARY KEY,
-    index_name VARCHAR(50) NOT NULL,
-    value DECIMAL(12, 2) NOT NULL,
-    change DECIMAL(10, 2) NOT NULL,
-    change_percent DECIMAL(10, 2) NOT NULL,
-    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-    source VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create index on index_name and timestamp for faster queries
-CREATE INDEX IF NOT EXISTS idx_market_indices_name_timestamp ON market_indices(index_name, timestamp);
+-- Note: market_indices table was previously defined in 001_initial_schema.sql
+-- It was renamed from 'name' to 'index_name' in migration 007_fix_market_indices_column.sql
 
 -- Create a table for job status tracking
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
