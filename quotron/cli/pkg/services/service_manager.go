@@ -817,6 +817,74 @@ func (sm *ServiceManager) checkServiceResponding(host string, port int) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 500
 }
 
+// RunSchedulerJob runs a scheduler job directly by loading the scheduler package
+// and calling RunJobNow on it, without using the CLI
+func (sm *ServiceManager) RunSchedulerJob(ctx context.Context, jobName string) error {
+	// Import the scheduler package and configuration
+	schedulerPkg, err := sm.importSchedulerPackage()
+	if err != nil {
+		return fmt.Errorf("failed to import scheduler package: %w", err)
+	}
+
+	// Run the job through the imported package
+	err = schedulerPkg.RunJob(ctx, jobName, sm.config.SchedulerConfigFile)
+	if err != nil {
+		return fmt.Errorf("failed to run job %s: %w", jobName, err)
+	}
+
+	return nil
+}
+
+// importSchedulerPackage dynamically loads the scheduler package
+// This is a helper function to avoid direct imports and allow for runtime loading
+func (sm *ServiceManager) importSchedulerPackage() (*SchedulerPackage, error) {
+	// Create a wrapper around the scheduler package
+	return &SchedulerPackage{
+		schedulerDir: filepath.Join(sm.config.QuotronRoot, "scheduler"),
+	}, nil
+}
+
+// SchedulerPackage is a wrapper around the scheduler package
+// This allows us to access the scheduler package without direct imports
+type SchedulerPackage struct {
+	schedulerDir string
+}
+
+// RunJob runs a scheduler job by executing the scheduler binary with the -run-job flag
+func (sp *SchedulerPackage) RunJob(ctx context.Context, jobName, configPath string) error {
+	if configPath == "" {
+		configPath = filepath.Join(filepath.Dir(sp.schedulerDir), "scheduler-config.json")
+	}
+
+	// Check config file
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return fmt.Errorf("scheduler config file not found at %s", configPath)
+	}
+
+	// Check scheduler binary
+	schedulerBin := filepath.Join(sp.schedulerDir, "scheduler")
+	if _, err := os.Stat(schedulerBin); os.IsNotExist(err) {
+		return fmt.Errorf("scheduler binary not found at %s", schedulerBin)
+	}
+
+	// Run the scheduler with the -run-job flag
+	fmt.Printf("Running scheduler job '%s'...\n", jobName)
+	cmd := exec.CommandContext(ctx, schedulerBin, 
+		"-run-job", jobName,
+		"--config", configPath)
+	cmd.Dir = sp.schedulerDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Run the command and wait for it to complete
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("failed to run scheduler job: %w", err)
+	}
+
+	return nil
+}
+
 // GetConfig returns the current configuration
 func (sm *ServiceManager) GetConfig() *Config {
 	return sm.config

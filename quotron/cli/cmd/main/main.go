@@ -369,12 +369,19 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 		}
 		jobName := args[1]
 		
-		// Note: RunSchedulerJob removed in consolidation
-		// Display info message instead
+		// Use our new function to run the job directly
 		fmt.Printf("Triggering scheduler job '%s'...\n", jobName)
-		fmt.Println("NOTE: This functionality has been moved to the scheduler service directly.")
-		fmt.Println("To run a job, use the scheduler's HTTP API or CLI interface directly.")
-		fmt.Printf("✅ Job '%s' was requested. Check scheduler logs for progress.\n", jobName)
+		
+		// Run the job with a timeout context
+		jobCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		
+		err := manager.RunSchedulerJob(jobCtx, jobName)
+		if err != nil {
+			log.Fatalf("Failed to run job '%s': %v", jobName, err)
+		}
+		
+		fmt.Printf("✅ Job '%s' completed. Data should be available in Redis.\n", jobName)
 
 	case "status":
 		// Show scheduler status
