@@ -130,9 +130,7 @@ func usage() {
 	fmt.Println("  test [TEST]         Run tests (all or specified test)")
 	fmt.Println("  import-sp500        Import S&P 500 data")
 	fmt.Println("  scheduler <SUBCOMMAND>  Manage or interact with the scheduler:")
-	fmt.Println("                       - jobs: List configured jobs")
 	fmt.Println("                       - run-job <JOBNAME>: Run a job immediately")
-	fmt.Println("                       - next-runs: Show upcoming execution times")
 	fmt.Println("                       - status: Show scheduler status")
 	fmt.Println("                       - help: Show detailed scheduler help")
 	fmt.Println("  health              Check health of services")
@@ -360,17 +358,9 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 	subCommand := args[0]
 
 	switch subCommand {
-	case "jobs":
-		// List all jobs in the scheduler
-		fmt.Println("=== Scheduler Jobs ===")
-		fmt.Println("The scheduler jobs functionality has been moved to the scheduler service directly.")
-		fmt.Println("Please use the scheduler's HTTP API or direct CLI interface to view and manage jobs.")
+	// jobs command removed - functionality moved to scheduler service
 
-	case "next-runs":
-		// Show when jobs will run next
-		fmt.Println("=== Scheduler Next Run Times ===")
-		fmt.Println("The scheduler next-runs functionality has been moved to the scheduler service directly.")
-		fmt.Println("Please use the scheduler's HTTP API or direct CLI interface to view upcoming job executions.")
+	// next-runs command removed - functionality moved to scheduler service
 
 	case "run-job":
 		// Run a specific job immediately
@@ -398,12 +388,12 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 		
 		// If scheduler is running, show simple info
 		if status.Scheduler {
-			fmt.Println("Scheduler is running. Use 'quotron scheduler jobs' for more details.")
+			fmt.Println("Scheduler is running. Use scheduler's HTTP API for more details.")
 		}
 
 	default:
 		fmt.Printf("Unknown scheduler sub-command: %s\n", subCommand)
-		fmt.Println("Available sub-commands: jobs, run-job, next-runs, status, help")
+		fmt.Println("Available sub-commands: run-job, status, help")
 		fmt.Println("\nRun 'quotron scheduler help' for more information")
 	}
 }
@@ -414,17 +404,13 @@ func printSchedulerHelp() {
 	fmt.Println("Usage: quotron scheduler <SUBCOMMAND>")
 	fmt.Println()
 	fmt.Println("Available subcommands:")
-	fmt.Println("  jobs                List all configured scheduler jobs")
 	fmt.Println("  run-job <JOBNAME>   Run a specific job immediately")
-	fmt.Println("  next-runs           Show when jobs are scheduled to run next")
 	fmt.Println("  status              Show scheduler status and job information")
 	fmt.Println("  help                Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  quotron scheduler jobs         List all configured jobs")
 	fmt.Println("  quotron scheduler run-job market_indices  Run market index job now")
 	fmt.Println("  quotron scheduler run-job stock_quotes    Run stock quotes job now")
-	fmt.Println("  quotron scheduler next-runs    Show upcoming job execution times")
 }
 
 // formatStatus formats a service status as a colored string
