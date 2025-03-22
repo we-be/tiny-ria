@@ -14,15 +14,12 @@ import (
 )
 
 const (
-	// Redis channels and streams
-	StockChannel   = "quotron:stocks"      // Legacy pub/sub channel
-	StockStream    = "quotron:stocks:stream"   // New stream name
-	CryptoChannel  = "quotron:crypto"      // Legacy pub/sub channel for crypto
-	CryptoStream   = "quotron:crypto:stream"   // New stream name for crypto
-	IndexChannel   = "quotron:indices"     // Legacy pub/sub channel for market indices
-	IndexStream    = "quotron:indices:stream"  // New stream name for market indices
-	ConsumerGroup  = "quotron:etl"        // Consumer group name
-	StreamMaxLen   = 1000                // Maximum number of messages to keep in the stream
+	// Redis streams
+	StockStream    = "quotron:stocks:stream"   // Stream name for stocks
+	CryptoStream   = "quotron:crypto:stream"   // Stream name for crypto
+	IndexStream    = "quotron:indices:stream"  // Stream name for market indices
+	ConsumerGroup  = "quotron:etl"            // Consumer group name
+	StreamMaxLen   = 1000                    // Maximum number of messages to keep in the stream
 	RedisAddr      = "localhost:6379"
 )
 
@@ -68,7 +65,7 @@ func (p *PublisherClient) Close() {
 	}
 }
 
-// PublishCryptoQuote publishes a crypto quote to Redis (both PubSub and Stream)
+// PublishCryptoQuote publishes a crypto quote to Redis Stream
 func (p *PublisherClient) PublishCryptoQuote(ctx context.Context, quote *CryptoQuote) error {
 	// Marshal quote to JSON
 	data, err := json.Marshal(quote)
@@ -76,15 +73,8 @@ func (p *PublisherClient) PublishCryptoQuote(ctx context.Context, quote *CryptoQ
 		return fmt.Errorf("error marshaling quote: %w", err)
 	}
 
-	// Publish to both PubSub and Stream
-	err = p.redis.Publish(ctx, CryptoChannel, string(data)).Err()
-	if err != nil {
-		return fmt.Errorf("error publishing to PubSub: %w", err)
-	}
-	log.Printf("Published to Redis PubSub channel %s", CryptoChannel)
-
 	// Add to stream
-	_, err = p.redis.XAdd(ctx, &redis.XAddArgs{
+	result, err := p.redis.XAdd(ctx, &redis.XAddArgs{
 		Stream: CryptoStream,
 		ID:     "*", // Auto-generate ID
 		Values: map[string]interface{}{
@@ -96,7 +86,7 @@ func (p *PublisherClient) PublishCryptoQuote(ctx context.Context, quote *CryptoQ
 	if err != nil {
 		return fmt.Errorf("error publishing to Stream: %w", err)
 	}
-	log.Printf("Published to Redis Stream %s", CryptoStream)
+	log.Printf("Published to Redis Stream %s with ID %s", CryptoStream, result)
 
 	return nil
 }
@@ -170,35 +160,6 @@ func (c *ConsumerClient) InitializeStream(ctx context.Context, streamName string
 	return nil
 }
 
-// SubscribeToPubSub subscribes to a Redis pub/sub channel
-func (c *ConsumerClient) SubscribeToPubSub(ctx context.Context, channels ...string) (*redis.PubSub, error) {
-	pubsub := c.redis.Subscribe(ctx, channels...)
-	
-	// Wait for confirmation of subscription
-	_, err := pubsub.Receive(ctx)
-	if err != nil {
-		pubsub.Close()
-		return nil, fmt.Errorf("failed to subscribe to channels: %w", err)
-	}
-	
-	log.Printf("Subscribed to Redis channels: %v", channels)
-	return pubsub, nil
-}
-
-// ProcessPubSubMessage processes messages from a Redis pub/sub channel
-func (c *ConsumerClient) ProcessPubSubMessage(msg *redis.Message) error {
-	// Parse the message as a crypto quote
-	var quote CryptoQuote
-	err := json.Unmarshal([]byte(msg.Payload), &quote)
-	if err != nil {
-		return fmt.Errorf("error parsing message: %w", err)
-	}
-
-	// In a real application, we would store this in the database
-	log.Printf("PubSub: Received crypto quote for %s, price: $%.2f", quote.Symbol, quote.Price)
-	return nil
-}
-
 // ConsumeStream consumes messages from a Redis stream
 func (c *ConsumerClient) ConsumeStream(ctx context.Context, streamName string) error {
 	// Read from stream with 1-second blocking timeout
@@ -206,7 +167,7 @@ func (c *ConsumerClient) ConsumeStream(ctx context.Context, streamName string) e
 		Group:    ConsumerGroup,
 		Consumer: c.consumerID,
 		Streams:  []string{streamName, ">"}, // ">" means only undelivered messages
-		Count:    1,                          // Process one message at a time
+		Count:    1,                         // Process one message at a time
 		Block:    1 * time.Second,
 	}).Result()
 
@@ -285,16 +246,6 @@ func main() {
 		log.Printf("Warning: Failed to initialize stream: %v", err)
 	}
 
-	// Subscribe to PubSub channel
-	pubsub, err := consumer.SubscribeToPubSub(ctx, CryptoChannel)
-	if err != nil {
-		log.Fatalf("Failed to subscribe to PubSub: %v", err)
-	}
-	defer pubsub.Close()
-
-	// Channel for PubSub messages
-	msgCh := pubsub.Channel()
-
 	// Generate some test quotes
 	go func() {
 		symbols := []string{"BTC-USD", "ETH-USD", "SOL-USD", "ADA-USD"}
@@ -333,21 +284,12 @@ func main() {
 		}
 	}()
 
-	// Main loop for consuming from both PubSub and Stream
+	// Main loop for consuming from Stream
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("Shutting down...")
 			return
-
-		case msg, ok := <-msgCh:
-			if !ok {
-				log.Println("PubSub channel closed")
-				return
-			}
-			if err := consumer.ProcessPubSubMessage(msg); err != nil {
-				log.Printf("Error processing PubSub message: %v", err)
-			}
 
 		default:
 			// Consume from stream
