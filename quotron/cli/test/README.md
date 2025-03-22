@@ -1,55 +1,71 @@
-# Quotron Test Utilities
+# Quotron ETL Tests
 
-This directory contains test utilities for various aspects of the Quotron system.
+This directory contains tests and utilities for the Quotron ETL architecture. The architecture follows a publisher-consumer pattern where:
 
-## Cryptocurrency Test Tools
+1. Publishers (e.g., schedulers, API scrapers) publish financial data to Redis
+2. The ETL service consumes this data and stores it in the database
 
-The following tools are available for testing the cryptocurrency quote functionality:
+## Architecture
 
-1. **test_crypto_quote.go**: Tests fetching and publishing a single cryptocurrency quote
-   ```
-   go run test_crypto_quote.go -symbol BTC-USD
-   ```
+The data flow is:
 
-2. **test_crypto_job_manual.go**: Manually runs the crypto job with multiple symbols
-   ```
-   go run test_crypto_job_manual.go -symbols BTC-USD,ETH-USD,SOL-USD
-   ```
+```
+Publishers (Scheduler, API Scrapers) → Redis → ETL Service → Database
+```
 
-3. **crypto_monitor**: Monitors the Redis channel for cryptocurrency quotes
-   ```
-   ./crypto_monitor
-   ```
+Redis serves as a message broker with two mechanisms:
+- **PubSub**: For backward compatibility
+- **Streams**: For more reliable message delivery with consumer groups
 
-## Redis Test Tools
+## Key Components
 
-Redis-related test utilities:
+- `test_crypto_etl_flow.go`: Demonstrates the complete ETL flow (publisher → Redis → consumer)
+- `crypto_redis_monitor.go`: Monitors Redis channels and streams, displaying message counts
+- `setup_redis_streams.sh`: Sets up Redis streams and consumer groups for the ETL service
+- `etl_integration_test.sh`: Integration test script that verifies the entire data flow
+- `quotron_crypto_job.go`: Sample job implementation used by the scheduler
 
-1. **redis_sub_main.go**: Subscribes to stock quotes channel
-   ```
-   go run redis_sub_main.go
-   ```
+## Running Tests
 
-2. **redis_monitor_main.go**: Monitors Redis channels for activity
-   ```
-   go run redis_monitor_main.go
-   ```
+### Setup Redis Streams
 
-3. **redis_test_main.go**: Basic Redis functionality test
-   ```
-   go run redis_test_main.go
-   ```
+```bash
+./setup_redis_streams.sh
+```
 
-## ETL Test Tools
+This script creates the required Redis streams and consumer groups for the ETL service.
 
-ETL pipeline test utilities:
+### Monitor Redis
 
-1. **etl_publisher_main.go**: Publishes test messages to the ETL queue
-   ```
-   go run etl_publisher_main.go
-   ```
+```bash
+go run crypto_redis_monitor.go
+# or with message content:
+go run crypto_redis_monitor.go -v
+```
 
-2. **etl_worker_main.go**: Simple ETL worker that processes messages
-   ```
-   go run etl_worker_main.go
-   ```
+This utility displays message counts for all channels and streams and logs messages as they arrive.
+
+### Test ETL Flow
+
+```bash
+go run test_crypto_etl_flow.go
+```
+
+This simulates both the publisher (scheduler) and consumer (ETL) in a single process, demonstrating the complete flow.
+
+### Integration Test
+
+```bash
+./etl_integration_test.sh
+```
+
+This script orchestrates a complete integration test, verifying all components work together.
+
+## Troubleshooting
+
+If the ETL service isn't processing messages from all channels:
+
+1. Run `./setup_redis_streams.sh` to ensure streams and consumer groups exist
+2. Run `go run crypto_redis_monitor.go` to verify messages are being published
+3. Check ETL logs for subscription failures
+4. Restart the ETL service: `quotron stop etl && quotron start etl`

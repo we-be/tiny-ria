@@ -25,6 +25,14 @@
       "parameters": {
         "indices": "SPY,QQQ,DIA"
       }
+    },
+    "crypto_quotes": {
+      "cron": "*/30 * * * *",
+      "enabled": true,
+      "description": "Fetch cryptocurrency quotes",
+      "parameters": {
+        "symbols": "BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD"
+      }
     }
   }
 }

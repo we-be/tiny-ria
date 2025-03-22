@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	ChannelName = "quotron:stocks"
+	StockStream = "quotron:stocks:stream"  // Stock quotes stream
+	StreamMaxLen = 1000                   // Maximum number of messages to keep in the stream
 )
 
 // StockQuote represents a single stock quote
@@ -55,12 +56,16 @@ func main() {
 	}
 	log.Printf("Connected to Redis at %s", *redisAddr)
 	
-	// Check for subscribers
-	subs, err := client.PubSubNumSub(ctx, ChannelName).Result()
+	// Check stream info
+	streamInfo, err := client.XInfoStream(ctx, StockStream).Result()
 	if err != nil {
-		log.Printf("Failed to check subscribers: %v", err)
+		if err == redis.Nil {
+			log.Printf("Stream %s does not exist yet, it will be created", StockStream)
+		} else {
+			log.Printf("Warning: could not get stream info: %v", err)
+		}
 	} else {
-		log.Printf("Channel %s has %d subscribers", ChannelName, subs[ChannelName])
+		log.Printf("Stream %s has %d messages", StockStream, streamInfo.Length)
 	}
 	
 	// Random price changes
@@ -100,13 +105,28 @@ func main() {
 			continue
 		}
 		
-		// Publish to Redis
-		log.Printf("Publishing quote for %s: $%.2f", quote.Symbol, quote.Price)
-		err = client.Publish(ctx, ChannelName, string(data)).Err()
+		// Publish to Redis Stream
+		log.Printf("Publishing quote for %s: $%.2f to stream", quote.Symbol, quote.Price)
+		
+		// Create values map for XAdd
+		values := map[string]interface{}{
+			"data": string(data),
+		}
+		
+		// Add to stream
+		result, err := client.XAdd(ctx, &redis.XAddArgs{
+			Stream: StockStream,
+			ID:     "*", // Auto-generate ID
+			Values: values,
+			MaxLen: StreamMaxLen,
+		}).Result()
+		
 		if err != nil {
-			log.Printf("Error publishing message: %v", err)
+			log.Printf("Error publishing to stream: %v", err)
 			continue
 		}
+		
+		log.Printf("Published message with ID: %s", result)
 		
 		// Wait before sending the next message
 		if i < *count-1 && *delay > 0 {
@@ -114,5 +134,5 @@ func main() {
 		}
 	}
 	
-	log.Printf("Published %d messages", *count)
+	log.Printf("Published %d messages to stream", *count)
 }

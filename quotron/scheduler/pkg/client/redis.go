@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	StockQuoteChannel  = "quotron:stocks"
-	CryptoQuoteChannel = "quotron:crypto"
-	DefaultRedisAddr   = "localhost:6379"
+	StockQuoteStream     = "quotron:stocks:stream"
+	CryptoQuoteStream    = "quotron:crypto:stream"
+	MarketIndexStream    = "quotron:indices:stream"
+	DefaultRedisAddr     = "localhost:6379"
 )
 
 // QuoteData represents a quote data structure used in Redis
@@ -52,45 +53,82 @@ func (r *RedisClient) Close() error {
 	return r.client.Close()
 }
 
-// PublishStockQuote publishes a stock quote to Redis
-func (r *RedisClient) PublishStockQuote(ctx context.Context, quote *QuoteData) error {
+// PublishToStockStream publishes a stock quote to Redis Stream
+func (r *RedisClient) PublishToStockStream(ctx context.Context, quote *QuoteData) error {
 	// Convert to JSON
 	data, err := json.Marshal(quote)
 	if err != nil {
-		return fmt.Errorf("failed to marshal stock quote: %w", err)
+		return fmt.Errorf("failed to marshal stock quote for stream: %w", err)
 	}
 	
-	// Publish to Redis
-	err = r.client.Publish(ctx, StockQuoteChannel, string(data)).Err()
+	// Create values map for XAdd
+	values := map[string]interface{}{
+		"data": string(data),
+	}
+	
+	// Add to stream
+	err = r.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: StockQuoteStream,
+		ID:     "*", // Auto-generate ID
+		Values: values,
+	}).Err()
+	
 	if err != nil {
-		return fmt.Errorf("failed to publish to Redis: %w", err)
+		return fmt.Errorf("failed to add to Redis stream: %w", err)
 	}
 	
 	return nil
 }
 
-// GetSubscriberCount returns the number of subscribers for a channel
-func (r *RedisClient) GetSubscriberCount(ctx context.Context, channel string) (int64, error) {
-	result, err := r.client.PubSubNumSub(ctx, channel).Result()
-	if err != nil {
-		return 0, err
-	}
-	
-	return result[channel], nil
-}
-
-// PublishCryptoQuote publishes a cryptocurrency quote to Redis
-func (r *RedisClient) PublishCryptoQuote(ctx context.Context, quote *QuoteData) error {
+// PublishToCryptoStream publishes a cryptocurrency quote to Redis Stream
+func (r *RedisClient) PublishToCryptoStream(ctx context.Context, quote *QuoteData) error {
 	// Convert to JSON
 	data, err := json.Marshal(quote)
 	if err != nil {
-		return fmt.Errorf("failed to marshal crypto quote: %w", err)
+		return fmt.Errorf("failed to marshal crypto quote for stream: %w", err)
 	}
 	
-	// Publish to Redis
-	err = r.client.Publish(ctx, CryptoQuoteChannel, string(data)).Err()
+	// Create values map for XAdd
+	values := map[string]interface{}{
+		"data": string(data),
+	}
+	
+	// Add to stream
+	err = r.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: CryptoQuoteStream,
+		ID:     "*", // Auto-generate ID
+		Values: values,
+	}).Err()
+	
 	if err != nil {
-		return fmt.Errorf("failed to publish to Redis: %w", err)
+		return fmt.Errorf("failed to add to Redis stream: %w", err)
+	}
+	
+	return nil
+}
+
+// PublishToMarketIndexStream publishes a market index to Redis Stream
+func (r *RedisClient) PublishToMarketIndexStream(ctx context.Context, marketData *MarketData) error {
+	// Convert to JSON
+	data, err := json.Marshal(marketData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal market index data for stream: %w", err)
+	}
+	
+	// Create values map for XAdd
+	values := map[string]interface{}{
+		"data": string(data),
+	}
+	
+	// Add to stream
+	err = r.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: MarketIndexStream,
+		ID:     "*", // Auto-generate ID
+		Values: values,
+	}).Err()
+	
+	if err != nil {
+		return fmt.Errorf("failed to add to Redis stream: %w", err)
 	}
 	
 	return nil

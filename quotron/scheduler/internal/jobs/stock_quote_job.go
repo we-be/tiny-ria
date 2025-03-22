@@ -165,7 +165,7 @@ func (j *StockQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) er
 		return fmt.Errorf("failed to marshal stock quote: %w", err)
 	}
 	
-	// Save to file and import to database
+	// Save to file only (no direct database import)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -182,16 +182,21 @@ func (j *StockQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) er
 			log.Printf("Warning: couldn't save output to %s: %v", filename, err)
 		} else {
 			log.Printf("Saved output to %s", filename)
-			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "quotes", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
-			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
-			}
+			// Note: No direct database import - the ETL service will handle that
 		}
+	}
+	
+	// Publish to Redis Stream
+	redisClient := client.NewRedisClient("")
+	defer redisClient.Close()
+
+	quoteData := client.StockQuoteToQuoteData(quote)
+	
+	// Publish to Redis Stream
+	if err := redisClient.PublishToStockStream(ctx, quoteData); err != nil {
+		log.Printf("Warning: failed to publish to Redis Stream: %v", err)
+	} else {
+		log.Printf("Published stock quote for %s to Redis Stream", symbol)
 	}
 	
 	log.Printf("Successfully fetched quote for %s via API service (%s)", symbol, quote.Source)
@@ -217,7 +222,7 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 		return fmt.Errorf("failed to execute API scraper: %w, output: %s", err, output)
 	}
 
-	// Save the output to a file for analysis and database
+	// Save the output to a file (no direct database import)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -229,14 +234,55 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 		} else {
 			log.Printf("Saved output to %s", filename)
 			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "quotes", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
+			// Parse the JSON to extract quote data for Redis
+			var quoteData map[string]interface{}
+			if err := json.Unmarshal(output, &quoteData); err != nil {
+				log.Printf("Warning: couldn't parse JSON for Redis publishing: %v", err)
 			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
+				// Create StockQuote from JSON data
+				stockQuote := &client.StockQuote{
+					Symbol:        symbol,
+					Price:         0.0,  // Will be populated from JSON
+					Change:        0.0,  // Will be populated from JSON
+					ChangePercent: 0.0,  // Will be populated from JSON
+					Volume:        0,    // Will be populated from JSON
+					Timestamp:     time.Now(),
+					Exchange:      "OTHER", // Will be populated from JSON if available
+					Source:        "Alpha Vantage",
+				}
+				
+				// Extract values from JSON
+				if price, ok := quoteData["price"].(float64); ok {
+					stockQuote.Price = price
+				}
+				if change, ok := quoteData["change"].(float64); ok {
+					stockQuote.Change = change
+				}
+				if changePercent, ok := quoteData["changePercent"].(float64); ok {
+					stockQuote.ChangePercent = changePercent
+				}
+				if volume, ok := quoteData["volume"].(float64); ok {
+					stockQuote.Volume = int64(volume)
+				}
+				if exchange, ok := quoteData["exchange"].(string); ok {
+					stockQuote.Exchange = client.MapExchangeToEnum(exchange)
+				}
+				
+				// Publish to Redis Stream
+				redisClient := client.NewRedisClient("")
+				defer redisClient.Close()
+				
+				quoteData := client.StockQuoteToQuoteData(stockQuote)
+				
+				// Publish to Redis Stream
+				if err := redisClient.PublishToStockStream(ctx, quoteData); err != nil {
+					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
+				} else {
+					log.Printf("Published stock quote for %s to Redis Stream", symbol)
+				}
 			}
+			
+			// Note: No direct database import - the ETL service will handle that
 		}
 	}
 
@@ -258,7 +304,7 @@ func (j *StockQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) erro
 		return fmt.Errorf("failed to execute API scraper with Yahoo Finance: %w, output: %s", err, output)
 	}
 
-	// Save the output to a file for analysis and database
+	// Save the output to a file (no direct database import)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -270,14 +316,55 @@ func (j *StockQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) erro
 		} else {
 			log.Printf("Saved output to %s", filename)
 			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "quotes", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
+			// Parse the JSON to extract quote data for Redis
+			var quoteData map[string]interface{}
+			if err := json.Unmarshal(output, &quoteData); err != nil {
+				log.Printf("Warning: couldn't parse JSON for Redis publishing: %v", err)
 			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
+				// Create StockQuote from JSON data
+				stockQuote := &client.StockQuote{
+					Symbol:        symbol,
+					Price:         0.0,  // Will be populated from JSON
+					Change:        0.0,  // Will be populated from JSON
+					ChangePercent: 0.0,  // Will be populated from JSON
+					Volume:        0,    // Will be populated from JSON
+					Timestamp:     time.Now(),
+					Exchange:      "OTHER", // Will be populated from JSON if available
+					Source:        "Yahoo Finance",
+				}
+				
+				// Extract values from JSON
+				if price, ok := quoteData["price"].(float64); ok {
+					stockQuote.Price = price
+				}
+				if change, ok := quoteData["change"].(float64); ok {
+					stockQuote.Change = change
+				}
+				if changePercent, ok := quoteData["changePercent"].(float64); ok {
+					stockQuote.ChangePercent = changePercent
+				}
+				if volume, ok := quoteData["volume"].(float64); ok {
+					stockQuote.Volume = int64(volume)
+				}
+				if exchange, ok := quoteData["exchange"].(string); ok {
+					stockQuote.Exchange = client.MapExchangeToEnum(exchange)
+				}
+				
+				// Publish to Redis Stream only
+				redisClient := client.NewRedisClient("")
+				defer redisClient.Close()
+				
+				quoteData := client.StockQuoteToQuoteData(stockQuote)
+				
+				// Publish to Redis Stream
+				if err := redisClient.PublishToStockStream(ctx, quoteData); err != nil {
+					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
+				} else {
+					log.Printf("Published stock quote for %s to Redis Stream", symbol)
+				}
 			}
+			
+			// Note: No direct database import - the ETL service will handle that
 		}
 	}
 

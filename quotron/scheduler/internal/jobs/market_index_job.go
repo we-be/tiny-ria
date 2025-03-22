@@ -161,7 +161,7 @@ func (j *MarketIndexJob) fetchMarketDataFromAPI(ctx context.Context, index strin
 		return fmt.Errorf("failed to marshal market data: %w", err)
 	}
 	
-	// Save to file and import to database
+	// Save to file (no direct database import)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -178,16 +178,19 @@ func (j *MarketIndexJob) fetchMarketDataFromAPI(ctx context.Context, index strin
 			log.Printf("Warning: couldn't save output to %s: %v", filename, err)
 		} else {
 			log.Printf("Saved output to %s", filename)
-			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "indices", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
-			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
-			}
+			// Note: No direct database import - the ETL service will handle that
 		}
+	}
+	
+	// Publish to Redis Stream
+	redisClient := client.NewRedisClient("")
+	defer redisClient.Close()
+	
+	// Publish to Redis Stream
+	if err := redisClient.PublishToMarketIndexStream(ctx, marketData); err != nil {
+		log.Printf("Warning: failed to publish to Redis Stream: %v", err)
+	} else {
+		log.Printf("Published market data for %s to Redis Stream", index)
 	}
 	
 	log.Printf("Successfully fetched market data for %s via API service (%s)", index, marketData.Source)
@@ -213,7 +216,7 @@ func (j *MarketIndexJob) fetchMarketData(ctx context.Context, index string) erro
 		return fmt.Errorf("failed to execute API scraper: %w, output: %s", err, output)
 	}
 
-	// Save the output to a file for analysis and database
+	// Save the output to a file (no direct database import)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -225,14 +228,45 @@ func (j *MarketIndexJob) fetchMarketData(ctx context.Context, index string) erro
 		} else {
 			log.Printf("Saved output to %s", filename)
 			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "indices", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
+			// Parse the JSON to extract market data for Redis
+			var marketDataMap map[string]interface{}
+			if err := json.Unmarshal(output, &marketDataMap); err != nil {
+				log.Printf("Warning: couldn't parse JSON for Redis publishing: %v", err)
 			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
+				// Create MarketData from JSON data
+				marketData := &client.MarketData{
+					IndexName:     index,
+					Value:         0.0,  // Will be populated from JSON
+					Change:        0.0,  // Will be populated from JSON
+					ChangePercent: 0.0,  // Will be populated from JSON
+					Timestamp:     time.Now(),
+					Source:        "Alpha Vantage",
+				}
+				
+				// Extract values from JSON
+				if value, ok := marketDataMap["value"].(float64); ok {
+					marketData.Value = value
+				}
+				if change, ok := marketDataMap["change"].(float64); ok {
+					marketData.Change = change
+				}
+				if changePercent, ok := marketDataMap["change_percent"].(float64); ok {
+					marketData.ChangePercent = changePercent
+				}
+				
+				// Publish to Redis Stream
+				redisClient := client.NewRedisClient("")
+				defer redisClient.Close()
+				
+				// Publish to Redis Stream
+				if err := redisClient.PublishToMarketIndexStream(ctx, marketData); err != nil {
+					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
+				} else {
+					log.Printf("Published market data for %s to Redis Stream", index)
+				}
 			}
+			
+			// Note: No direct database import - the ETL service will handle that
 		}
 	}
 
@@ -254,7 +288,7 @@ func (j *MarketIndexJob) fetchMarketDataYahoo(ctx context.Context, index string)
 		return fmt.Errorf("failed to execute API scraper with Yahoo Finance: %w, output: %s", err, output)
 	}
 
-	// Save the output to a file for analysis and database
+	// Save the output to a file (no direct database import)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -266,14 +300,45 @@ func (j *MarketIndexJob) fetchMarketDataYahoo(ctx context.Context, index string)
 		} else {
 			log.Printf("Saved output to %s", filename)
 			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "indices", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
+			// Parse the JSON to extract market data for Redis
+			var marketDataMap map[string]interface{}
+			if err := json.Unmarshal(output, &marketDataMap); err != nil {
+				log.Printf("Warning: couldn't parse JSON for Redis publishing: %v", err)
 			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
+				// Create MarketData from JSON data
+				marketData := &client.MarketData{
+					IndexName:     index,
+					Value:         0.0,  // Will be populated from JSON
+					Change:        0.0,  // Will be populated from JSON
+					ChangePercent: 0.0,  // Will be populated from JSON
+					Timestamp:     time.Now(),
+					Source:        "Yahoo Finance",
+				}
+				
+				// Extract values from JSON
+				if value, ok := marketDataMap["value"].(float64); ok {
+					marketData.Value = value
+				}
+				if change, ok := marketDataMap["change"].(float64); ok {
+					marketData.Change = change
+				}
+				if changePercent, ok := marketDataMap["change_percent"].(float64); ok {
+					marketData.ChangePercent = changePercent
+				}
+				
+				// Publish to Redis Stream only
+				redisClient := client.NewRedisClient("")
+				defer redisClient.Close()
+				
+				// Publish to Redis Stream
+				if err := redisClient.PublishToMarketIndexStream(ctx, marketData); err != nil {
+					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
+				} else {
+					log.Printf("Published market data for %s to Redis Stream", index)
+				}
 			}
+			
+			// Note: No direct database import - the ETL service will handle that
 		}
 	}
 

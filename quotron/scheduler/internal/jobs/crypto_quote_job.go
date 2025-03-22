@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	CryptoQuoteChannel = "quotron:crypto"
+	CryptoQuoteStream  = "quotron:crypto:stream" // Stream name for Redis Streams
 )
 
 // CryptoQuoteJob fetches cryptocurrency quotes for specified symbols
@@ -132,7 +132,7 @@ func (j *CryptoQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) e
 		return fmt.Errorf("failed to marshal crypto quote: %w", err)
 	}
 	
-	// Save to file and import to database
+	// Save to file only (no direct database import)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -144,19 +144,11 @@ func (j *CryptoQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) e
 			log.Printf("Warning: couldn't save output to %s: %v", filename, err)
 		} else {
 			log.Printf("Saved output to %s", filename)
-			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "crypto", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
-			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
-			}
+			// Note: No direct database import - the ETL service will handle that
 		}
 	}
 	
-	// Publish to Redis
+	// Publish to Redis Stream
 	redisClient := client.NewRedisClient("")
 	defer redisClient.Close()
 	
@@ -164,10 +156,12 @@ func (j *CryptoQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) e
 	quote.Exchange = "CRYPTO"
 	
 	quoteData := client.StockQuoteToQuoteData(quote)
-	if err := redisClient.PublishCryptoQuote(ctx, quoteData); err != nil {
-		log.Printf("Warning: failed to publish to Redis: %v", err)
+	
+	// Publish to Redis Stream
+	if err := redisClient.PublishToCryptoStream(ctx, quoteData); err != nil {
+		log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 	} else {
-		log.Printf("Published crypto quote for %s to Redis", symbol)
+		log.Printf("Published crypto quote for %s to Redis Stream", symbol)
 	}
 	
 	log.Printf("Successfully fetched crypto quote for %s via API service (%s)", symbol, quote.Source)
@@ -188,7 +182,7 @@ func (j *CryptoQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) err
 		return fmt.Errorf("failed to execute API scraper with Yahoo Finance: %w, output: %s", err, output)
 	}
 
-	// Save the output to a file for analysis and database
+	// Save the output to a file (but don't import directly to DB)
 	outputDir := "data"
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.Printf("Warning: couldn't create data directory: %v", err)
@@ -231,26 +225,21 @@ func (j *CryptoQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) err
 					cryptoQuote.Volume = int64(volume)
 				}
 				
-				// Publish to Redis
+				// Publish to Redis Stream
 				redisClient := client.NewRedisClient("")
 				defer redisClient.Close()
 				
 				quoteData := client.StockQuoteToQuoteData(cryptoQuote)
-				if err := redisClient.PublishCryptoQuote(ctx, quoteData); err != nil {
-					log.Printf("Warning: failed to publish to Redis: %v", err)
+				
+				// Publish to Redis Stream
+				if err := redisClient.PublishToCryptoStream(ctx, quoteData); err != nil {
+					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 				} else {
-					log.Printf("Published crypto quote for %s to Redis", symbol)
+					log.Printf("Published crypto quote for %s to Redis Stream", symbol)
 				}
 			}
 			
-			// Import to database using the ingest pipeline
-			ingestCmd := exec.CommandContext(ctx, "python3", "../ingest-pipeline/cli.py", "crypto", filename, "--source", "api-scraper", "--allow-old-data")
-			ingestOutput, ingestErr := ingestCmd.CombinedOutput()
-			if ingestErr != nil {
-				log.Printf("Warning: couldn't import data to database: %v, output: %s", ingestErr, ingestOutput)
-			} else {
-				log.Printf("Imported data to database: %s", ingestOutput)
-			}
+			// Note: No direct database import - the ETL service will handle that
 		}
 	}
 

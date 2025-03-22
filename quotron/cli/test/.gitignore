@@ -1,6 +1,8 @@
 # Binaries
 crypto_publisher_main
 test_crypto_quote
+crypto_redis_monitor
+test_crypto_etl
 *_main
 *_test
 
@@ -10,3 +12,6 @@ data/
 
 # Generated test files
 test_crypto_job.go
+
+# Log files
+*.log
