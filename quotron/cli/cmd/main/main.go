@@ -409,9 +409,10 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 		fmt.Println("=== Scheduler Status ===")
 		fmt.Printf("Scheduler: %s\n", formatStatus(status.Scheduler))
 		
-		// If scheduler is running, show simple info
+		// Show detailed scheduler status
 		if status.Scheduler {
-			fmt.Println("Scheduler is running. Use scheduler's HTTP API for more details.")
+			// Use the new detailed status function
+			manager.GetDetailedSchedulerStatus()
 		}
 
 	default:

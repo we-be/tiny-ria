@@ -44,6 +44,11 @@ func NewServiceManager(config *Config) *ServiceManager {
 	}
 }
 
+// GetQuotronRoot returns the path to the quotron root directory
+func (sm *ServiceManager) GetQuotronRoot() string {
+	return sm.config.QuotronRoot
+}
+
 // StartServices starts the specified services
 func (sm *ServiceManager) StartServices(ctx context.Context, services ServiceList, monitor bool) error {
 	// The defer cleanup was causing services to stop after starting
