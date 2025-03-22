@@ -2,7 +2,7 @@
 
 A modular financial data scraping, analysis, and trading system.
 
-[![CLI:6a858cf](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%3A6a858cf&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
+[![CLI:312becf](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%3A312becf&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
 [![YFinance](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/yahoo-finance-tests.yml?label=YFinance&logo=yahoo)](https://github.com/we-be/tiny-ria/actions/workflows/yahoo-finance-tests.yml)
 [![API Scraper](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/api-scraper-tests.yml?label=API%20Scraper&logo=golang)](https://github.com/we-be/tiny-ria/actions/workflows/api-scraper-tests.yml)
 
@@ -73,9 +73,8 @@ Commands:
   test [TEST]         Run tests (all or specified test)
   import-sp500        Import S&P 500 data
   scheduler <SUBCOMMAND>  Manage or interact with the scheduler:
-                       - jobs: List configured jobs
                        - run-job <JOBNAME>: Run a job immediately
-                       - next-runs: Show upcoming execution times
+                       - crypto_quotes: Fetch cryptocurrency quotes
                        - status: Show scheduler status
                        - help: Show detailed scheduler help
   health              Check health of services
@@ -85,7 +84,7 @@ Services:
   all                 All services (default)
   proxy               YFinance proxy only
   api                 API service only
-  dashboard           Dashboard only
+  # dashboard service has been integrated into the API service
   scheduler           Scheduler only
   etl                 ETL service only
 
