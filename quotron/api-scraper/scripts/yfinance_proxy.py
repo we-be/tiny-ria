@@ -255,6 +255,9 @@ class StockDataProvider:
         Returns:
             Stock quote dictionary
         """
+        # Intentionally cause an error for testing the failing badge
+        raise Exception("Intentional error for testing badge failure")
+        
         def transform_quote(info, symbol):
             return {
                 "symbol": symbol,
