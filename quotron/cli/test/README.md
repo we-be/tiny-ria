@@ -1,55 +1,46 @@
-# Quotron Test Utilities
+# Quotron CLI Test Utilities
 
-This directory contains test utilities for various aspects of the Quotron system.
+This directory contains test utilities for the Quotron CLI.
 
-## Cryptocurrency Test Tools
+## ETL Service Tests
 
-The following tools are available for testing the cryptocurrency quote functionality:
+The ETL service is responsible for consuming data from Redis and storing it in the database. The following test utilities are available:
 
-1. **test_crypto_quote.go**: Tests fetching and publishing a single cryptocurrency quote
-   ```
-   go run test_crypto_quote.go -symbol BTC-USD
-   ```
+### Redis Publishing and Monitoring
 
-2. **test_crypto_job_manual.go**: Manually runs the crypto job with multiple symbols
-   ```
-   go run test_crypto_job_manual.go -symbols BTC-USD,ETH-USD,SOL-USD
-   ```
+- `crypto_redis_monitor` - Monitors Redis channels and streams for activity
+- `test_crypto_etl` - Tests the crypto quote job publishing to Redis (without direct DB access)
 
-3. **crypto_monitor**: Monitors the Redis channel for cryptocurrency quotes
-   ```
-   ./crypto_monitor
-   ```
+### Integration Test
 
-## Redis Test Tools
+To run the integration test:
 
-Redis-related test utilities:
+```bash
+./etl_integration_test.sh
+```
 
-1. **redis_sub_main.go**: Subscribes to stock quotes channel
-   ```
-   go run redis_sub_main.go
-   ```
+This will:
+1. Start a Redis monitor to watch channels and streams
+2. Run the crypto quote job to publish data to Redis
+3. Show the Redis monitor output
 
-2. **redis_monitor_main.go**: Monitors Redis channels for activity
-   ```
-   go run redis_monitor_main.go
-   ```
+## Data Flow Architecture
 
-3. **redis_test_main.go**: Basic Redis functionality test
-   ```
-   go run redis_test_main.go
-   ```
+The correct data flow architecture is:
 
-## ETL Test Tools
+1. **Scheduler Service/API Service**
+   - Fetch data from external sources (Yahoo Finance, etc.)
+   - Publish to Redis (NOT directly to database)
+   - Uses channels: `quotron:stocks`, `quotron:crypto`
+   - Uses streams: `quotron:stocks:stream`, `quotron:crypto:stream`
 
-ETL pipeline test utilities:
+2. **ETL Service**
+   - Subscribe to Redis channels and streams
+   - Process data
+   - Store in PostgreSQL database
 
-1. **etl_publisher_main.go**: Publishes test messages to the ETL queue
-   ```
-   go run etl_publisher_main.go
-   ```
-
-2. **etl_worker_main.go**: Simple ETL worker that processes messages
-   ```
-   go run etl_worker_main.go
-   ```
+Using this architecture ensures:
+- Loose coupling between components
+- Scalability (multiple producers and consumers)
+- Reliability (with Redis persistence and consumer groups)
+- Monitoring capabilities

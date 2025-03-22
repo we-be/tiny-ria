@@ -20,6 +20,8 @@ const (
 	// Use both stream and pub/sub for backward compatibility
 	StockChannel   = "quotron:stocks"    // Legacy pub/sub channel
 	StockStream    = "quotron:stocks:stream" // New stream name
+	CryptoChannel  = "quotron:crypto"    // Legacy pub/sub channel for crypto
+	CryptoStream   = "quotron:crypto:stream" // New stream name for crypto
 	ConsumerGroup  = "quotron:etl"      // Consumer group name
 	StreamMaxLen   = 1000              // Maximum number of messages to keep in the stream
 )
@@ -151,12 +153,28 @@ func (s *Service) Start() error {
 
 // initializeStream initializes the Redis Stream and consumer group
 func (s *Service) initializeStream(ctx context.Context) error {
+	// Initialize stock stream
+	if err := s.initializeSingleStream(ctx, StockStream); err != nil {
+		return fmt.Errorf("failed to initialize stock stream: %w", err)
+	}
+	
+	// Initialize crypto stream
+	if err := s.initializeSingleStream(ctx, CryptoStream); err != nil {
+		log.Printf("Warning: Could not initialize crypto stream: %v - continuing without it", err)
+		// Continue without the crypto stream - don't fail the service
+	}
+	
+	return nil
+}
+
+// initializeSingleStream initializes a single Redis Stream and consumer group
+func (s *Service) initializeSingleStream(ctx context.Context, streamName string) error {
 	// Check if the stream exists
-	streamInfo, err := s.redis.XInfoStream(ctx, StockStream).Result()
+	streamInfo, err := s.redis.XInfoStream(ctx, streamName).Result()
 	if err != nil {
 		// Stream doesn't exist, create it with a dummy message
 		_, err = s.redis.XAdd(ctx, &redis.XAddArgs{
-			Stream: StockStream,
+			Stream: streamName,
 			ID:     "*", // Auto-generate ID
 			Values: map[string]interface{}{
 				"init": "true",
@@ -166,21 +184,21 @@ func (s *Service) initializeStream(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create stream: %w", err)
 		}
-		log.Printf("Created Redis stream %s", StockStream)
+		log.Printf("Created Redis stream %s", streamName)
 	} else {
-		log.Printf("Using existing Redis stream %s, length: %d", StockStream, streamInfo.Length)
+		log.Printf("Using existing Redis stream %s, length: %d", streamName, streamInfo.Length)
 	}
 	
 	// Create consumer group if it doesn't exist
-	_, err = s.redis.XGroupCreateMkStream(ctx, StockStream, ConsumerGroup, "0").Result()
+	_, err = s.redis.XGroupCreateMkStream(ctx, streamName, ConsumerGroup, "0").Result()
 	if err != nil {
 		// If group already exists, this is fine
 		if !redis.HasErrorPrefix(err, "BUSYGROUP") {
 			return fmt.Errorf("failed to create consumer group: %w", err)
 		}
-		log.Printf("Using existing consumer group %s", ConsumerGroup)
+		log.Printf("Using existing consumer group %s for stream %s", ConsumerGroup, streamName)
 	} else {
-		log.Printf("Created consumer group %s", ConsumerGroup)
+		log.Printf("Created consumer group %s for stream %s", ConsumerGroup, streamName)
 	}
 	
 	return nil
@@ -225,7 +243,7 @@ func (s *Service) IsRunning() bool {
 	return s.running
 }
 
-// runPubsubListener listens for messages on the Redis pub/sub channel and forwards them to the stream
+// runPubsubListener listens for messages on the Redis pub/sub channels and forwards them to the streams
 // This provides backward compatibility with existing publishers
 func (s *Service) runPubsubListener(ctx context.Context) {
 	log.Printf("PubSub Listener: Starting")
@@ -236,8 +254,8 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 	})
 	defer client.Close()
 	
-	// Subscribe to the stock channel
-	pubsub := client.Subscribe(ctx, StockChannel)
+	// Subscribe to both stock and crypto channels
+	pubsub := client.Subscribe(ctx, StockChannel, CryptoChannel)
 	defer pubsub.Close()
 	
 	// Wait for confirmation of subscription
@@ -246,7 +264,7 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 		log.Printf("PubSub Listener: Failed to subscribe: %v", err)
 		return
 	}
-	log.Printf("PubSub Listener: Subscribed to channel %s", StockChannel)
+	log.Printf("PubSub Listener: Subscribed to channels %s and %s", StockChannel, CryptoChannel)
 	
 	// Process messages
 	ch := pubsub.Channel()
@@ -262,9 +280,21 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 				return
 			}
 			
-			// Forward message to the stream
+			// Determine target stream based on source channel
+			var targetStream string
+			switch msg.Channel {
+			case StockChannel:
+				targetStream = StockStream
+			case CryptoChannel:
+				targetStream = CryptoStream
+			default:
+				log.Printf("PubSub Listener: Unknown channel %s, skipping message", msg.Channel)
+				continue
+			}
+			
+			// Forward message to the appropriate stream
 			_, err := client.XAdd(ctx, &redis.XAddArgs{
-				Stream: StockStream,
+				Stream: targetStream,
 				ID:     "*", // Auto-generate ID
 				Values: map[string]interface{}{
 					"data": msg.Payload,
@@ -273,9 +303,9 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 			}).Result()
 			
 			if err != nil {
-				log.Printf("PubSub Listener: Failed to add message to stream: %v", err)
+				log.Printf("PubSub Listener: Failed to add message to stream %s: %v", targetStream, err)
 			} else {
-				log.Printf("PubSub Listener: Forwarded message to stream %s", StockStream)
+				log.Printf("PubSub Listener: Forwarded message from %s to stream %s", msg.Channel, targetStream)
 			}
 		}
 	}
@@ -302,62 +332,80 @@ func (s *Service) runStreamWorker(ctx context.Context, workerID int) {
 			return
 			
 		default:
-			// Read from stream with 5-second blocking timeout
-			streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
-				Group:    ConsumerGroup,
-				Consumer: consumerName,
-				Streams:  []string{StockStream, ">"}, // ">" means only undelivered messages
-				Count:    1,  // Process one message at a time
-				Block:    5 * time.Second,
-			}).Result()
-			
-			if err != nil {
-				if err == redis.Nil || err.Error() == "redis: nil" {
-					// No messages available, just wait
-					continue
-				}
-				
-				// Real error
-				log.Printf("Worker %d: Error reading from stream: %v", workerID, err)
+			// Read from stock stream
+			if err := s.processStream(ctx, workerID, consumerName, client, StockStream); err != nil {
+				log.Printf("Worker %d: Error processing stock stream: %v", workerID, err)
 				time.Sleep(1 * time.Second) // Avoid tight loop on persistent errors
+			}
+			
+			// Read from crypto stream
+			if err := s.processStream(ctx, workerID, consumerName, client, CryptoStream); err != nil {
+				log.Printf("Worker %d: Error processing crypto stream: %v", workerID, err)
+				time.Sleep(1 * time.Second) // Avoid tight loop on persistent errors
+			}
+			
+			// Brief pause to avoid CPU spinning if no messages
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+// processStream processes messages from a single Redis stream
+func (s *Service) processStream(ctx context.Context, workerID int, consumerName string, client *redis.Client, streamName string) error {
+	// Read from stream with 2-second blocking timeout
+	streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    ConsumerGroup,
+		Consumer: consumerName,
+		Streams:  []string{streamName, ">"}, // ">" means only undelivered messages
+		Count:    1,  // Process one message at a time
+		Block:    2 * time.Second,
+	}).Result()
+	
+	if err != nil {
+		if err == redis.Nil || err.Error() == "redis: nil" {
+			// No messages available, just continue
+			return nil
+		}
+		
+		// Real error
+		return fmt.Errorf("error reading from stream: %w", err)
+	}
+	
+	// Process messages
+	for _, stream := range streams {
+		for _, message := range stream.Messages {
+			// Extract payload
+			data, ok := message.Values["data"].(string)
+			if !ok {
+				log.Printf("Worker %d: Invalid message format, no data field", workerID)
+				// Acknowledge message even if invalid
+				client.XAck(ctx, streamName, ConsumerGroup, message.ID)
 				continue
 			}
 			
-			// Process messages
-			for _, stream := range streams {
-				for _, message := range stream.Messages {
-					// Extract payload
-					data, ok := message.Values["data"].(string)
-					if !ok {
-						log.Printf("Worker %d: Invalid message format, no data field", workerID)
-						// Acknowledge message even if invalid
-						client.XAck(ctx, StockStream, ConsumerGroup, message.ID)
-						continue
-					}
-					
-					// Parse the message
-					var quote StockQuote
-					if err := json.Unmarshal([]byte(data), &quote); err != nil {
-						log.Printf("Worker %d: Failed to parse message: %v", workerID, err)
-						// Acknowledge message even if we can't parse it
-						client.XAck(ctx, StockStream, ConsumerGroup, message.ID)
-						continue
-					}
-					
-					// Process the stock quote
-					if err := s.processQuote(ctx, &quote); err != nil {
-						log.Printf("Worker %d: Error processing quote: %v", workerID, err)
-						// Don't acknowledge on error - it will be redelivered
-					} else {
-						log.Printf("Worker %d: Processed quote for %s: $%.2f", 
-							workerID, quote.Symbol, quote.Price)
-						// Acknowledge successful processing
-						client.XAck(ctx, StockStream, ConsumerGroup, message.ID)
-					}
-				}
+			// Parse the message
+			var quote StockQuote
+			if err := json.Unmarshal([]byte(data), &quote); err != nil {
+				log.Printf("Worker %d: Failed to parse message: %v", workerID, err)
+				// Acknowledge message even if we can't parse it
+				client.XAck(ctx, streamName, ConsumerGroup, message.ID)
+				continue
+			}
+			
+			// Process the quote
+			if err := s.processQuote(ctx, &quote); err != nil {
+				log.Printf("Worker %d: Error processing quote: %v", workerID, err)
+				// Don't acknowledge on error - it will be redelivered
+			} else {
+				log.Printf("Worker %d: Processed quote for %s from %s: $%.2f", 
+					workerID, quote.Symbol, streamName, quote.Price)
+				// Acknowledge successful processing
+				client.XAck(ctx, streamName, ConsumerGroup, message.ID)
 			}
 		}
 	}
+	
+	return nil
 }
 
 // processQuote handles a single stock quote
