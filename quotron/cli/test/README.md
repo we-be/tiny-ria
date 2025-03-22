@@ -1,46 +1,71 @@
-# Quotron CLI Test Utilities
+# Quotron ETL Tests
 
-This directory contains test utilities for the Quotron CLI.
+This directory contains tests and utilities for the Quotron ETL architecture. The architecture follows a publisher-consumer pattern where:
 
-## ETL Service Tests
+1. Publishers (e.g., schedulers, API scrapers) publish financial data to Redis
+2. The ETL service consumes this data and stores it in the database
 
-The ETL service is responsible for consuming data from Redis and storing it in the database. The following test utilities are available:
+## Architecture
 
-### Redis Publishing and Monitoring
+The data flow is:
 
-- `crypto_redis_monitor` - Monitors Redis channels and streams for activity
-- `test_crypto_etl` - Tests the crypto quote job publishing to Redis (without direct DB access)
+```
+Publishers (Scheduler, API Scrapers) → Redis → ETL Service → Database
+```
+
+Redis serves as a message broker with two mechanisms:
+- **PubSub**: For backward compatibility
+- **Streams**: For more reliable message delivery with consumer groups
+
+## Key Components
+
+- `test_crypto_etl_flow.go`: Demonstrates the complete ETL flow (publisher → Redis → consumer)
+- `crypto_redis_monitor.go`: Monitors Redis channels and streams, displaying message counts
+- `setup_redis_streams.sh`: Sets up Redis streams and consumer groups for the ETL service
+- `etl_integration_test.sh`: Integration test script that verifies the entire data flow
+- `quotron_crypto_job.go`: Sample job implementation used by the scheduler
+
+## Running Tests
+
+### Setup Redis Streams
+
+```bash
+./setup_redis_streams.sh
+```
+
+This script creates the required Redis streams and consumer groups for the ETL service.
+
+### Monitor Redis
+
+```bash
+go run crypto_redis_monitor.go
+# or with message content:
+go run crypto_redis_monitor.go -v
+```
+
+This utility displays message counts for all channels and streams and logs messages as they arrive.
+
+### Test ETL Flow
+
+```bash
+go run test_crypto_etl_flow.go
+```
+
+This simulates both the publisher (scheduler) and consumer (ETL) in a single process, demonstrating the complete flow.
 
 ### Integration Test
-
-To run the integration test:
 
 ```bash
 ./etl_integration_test.sh
 ```
 
-This will:
-1. Start a Redis monitor to watch channels and streams
-2. Run the crypto quote job to publish data to Redis
-3. Show the Redis monitor output
+This script orchestrates a complete integration test, verifying all components work together.
 
-## Data Flow Architecture
+## Troubleshooting
 
-The correct data flow architecture is:
+If the ETL service isn't processing messages from all channels:
 
-1. **Scheduler Service/API Service**
-   - Fetch data from external sources (Yahoo Finance, etc.)
-   - Publish to Redis (NOT directly to database)
-   - Uses channels: `quotron:stocks`, `quotron:crypto`
-   - Uses streams: `quotron:stocks:stream`, `quotron:crypto:stream`
-
-2. **ETL Service**
-   - Subscribe to Redis channels and streams
-   - Process data
-   - Store in PostgreSQL database
-
-Using this architecture ensures:
-- Loose coupling between components
-- Scalability (multiple producers and consumers)
-- Reliability (with Redis persistence and consumer groups)
-- Monitoring capabilities
+1. Run `./setup_redis_streams.sh` to ensure streams and consumer groups exist
+2. Run `go run crypto_redis_monitor.go` to verify messages are being published
+3. Check ETL logs for subscription failures
+4. Restart the ETL service: `quotron stop etl && quotron start etl`

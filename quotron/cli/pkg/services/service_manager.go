@@ -536,8 +536,8 @@ func (sm *ServiceManager) startETLService(ctx context.Context) error {
 		"-workers=2",
 	)
 	
-	// Set up log redirection
-	logFd, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	// Set up log redirection - Replace existing log file instead of appending
+	logFd, err := os.OpenFile(logFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open ETL log file: %w", err)
 	}

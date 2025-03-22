@@ -171,9 +171,12 @@ func (s *Service) initializeStream(ctx context.Context) error {
 	}
 	
 	// Initialize crypto stream
+	log.Printf("Initializing crypto stream: %s", CryptoStream)
 	if err := s.initializeSingleStream(ctx, CryptoStream); err != nil {
 		log.Printf("Warning: Could not initialize crypto stream: %v - continuing without it", err)
 		// Continue without the crypto stream - don't fail the service
+	} else {
+		log.Printf("Successfully initialized crypto stream: %s", CryptoStream)
 	}
 	
 	// Initialize market index stream
@@ -272,17 +275,50 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 	})
 	defer client.Close()
 	
-	// Subscribe to all channels (stocks, crypto, and market indices)
+	// Subscribe to each channel separately to ensure we get proper confirmation for each
+	log.Printf("PubSub Listener: Attempting to subscribe to channels %s, %s, and %s", StockChannel, CryptoChannel, IndexChannel)
+	
+	// Subscribe to stock channel
+	stockPubsub := client.Subscribe(ctx, StockChannel)
+	defer stockPubsub.Close()
+	stockSub, err := stockPubsub.Receive(ctx)
+	if err != nil {
+		log.Printf("PubSub Listener: Failed to subscribe to stock channel: %v", err)
+	} else {
+		log.Printf("PubSub Listener: Subscribed to channel %s (response: %T)", StockChannel, stockSub)
+	}
+	
+	// Subscribe to crypto channel
+	cryptoPubsub := client.Subscribe(ctx, CryptoChannel)
+	defer cryptoPubsub.Close()
+	cryptoSub, err := cryptoPubsub.Receive(ctx)
+	if err != nil {
+		log.Printf("PubSub Listener: Failed to subscribe to crypto channel: %v", err)
+	} else {
+		log.Printf("PubSub Listener: Subscribed to channel %s (response: %T)", CryptoChannel, cryptoSub)
+	}
+	
+	// Subscribe to index channel
+	indexPubsub := client.Subscribe(ctx, IndexChannel)
+	defer indexPubsub.Close()
+	indexSub, err := indexPubsub.Receive(ctx)
+	if err != nil {
+		log.Printf("PubSub Listener: Failed to subscribe to index channel: %v", err)
+	} else {
+		log.Printf("PubSub Listener: Subscribed to channel %s (response: %T)", IndexChannel, indexSub)
+	}
+	
+	// Now create a single subscription for actually processing messages from all channels
 	pubsub := client.Subscribe(ctx, StockChannel, CryptoChannel, IndexChannel)
 	defer pubsub.Close()
 	
 	// Wait for confirmation of subscription
-	_, err := pubsub.Receive(ctx)
+	subscription, err := pubsub.Receive(ctx)
 	if err != nil {
-		log.Printf("PubSub Listener: Failed to subscribe: %v", err)
+		log.Printf("PubSub Listener: Failed to subscribe to combined channels: %v", err)
 		return
 	}
-	log.Printf("PubSub Listener: Subscribed to channels %s, %s, and %s", StockChannel, CryptoChannel, IndexChannel)
+	log.Printf("PubSub Listener: Combined subscription established (response: %T)", subscription)
 	
 	// Process messages
 	ch := pubsub.Channel()
@@ -378,6 +414,9 @@ func (s *Service) runStreamWorker(ctx context.Context, workerID int) {
 
 // processStream processes messages from a single Redis stream
 func (s *Service) processStream(ctx context.Context, workerID int, consumerName string, client *redis.Client, streamName string) error {
+	// Log attempt to read from stream
+	log.Printf("Worker %d: Attempting to read from stream %s", workerID, streamName)
+	
 	// Read from stream with 2-second blocking timeout
 	streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    ConsumerGroup,
@@ -398,7 +437,9 @@ func (s *Service) processStream(ctx context.Context, workerID int, consumerName 
 	}
 	
 	// Process messages
+	log.Printf("Worker %d: Found %d streams from %s", workerID, len(streams), streamName)
 	for _, stream := range streams {
+		log.Printf("Worker %d: Found %d messages in stream %s", workerID, len(stream.Messages), stream.Stream)
 		for _, message := range stream.Messages {
 			// Extract payload
 			data, ok := message.Values["data"].(string)

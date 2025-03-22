@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,12 +161,10 @@ func (j *CryptoQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) err
 	timestamp := time.Now().Format("20060102-150405")
 	filename := filepath.Join(tempDir, fmt.Sprintf("%s-yahoo-%s.json", symbol, timestamp))
 	
-	// Call API scraper
-	cmd := exec.CommandContext(ctx, j.apiScraperPath, 
-		"-source=yahoo",
-		"-type=crypto",
-		"-symbol="+symbol,
-		"-output="+filename)
+	// Call API scraper with bash to handle output redirection
+	cmd := exec.CommandContext(ctx, "bash", "-c", 
+		fmt.Sprintf("%s -yahoo -symbol=%s -json > %s", 
+			j.apiScraperPath, symbol, filename))
 	
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -237,4 +236,66 @@ func (j *CryptoQuoteJob) publishToRedis(ctx context.Context, quote *CryptoQuote)
 	log.Printf("Published to Redis Stream %s", CryptoStream)
 	
 	return nil
+}
+
+// Main function - this can be called directly or used by the scheduler
+func main() {
+	// Parse command-line arguments
+	var symbols string
+	var useAPI bool
+	var apiHost string
+	var apiPort int
+
+	// Process command-line flags
+	for i, arg := range os.Args {
+		if arg == "-symbols" && i+1 < len(os.Args) {
+			symbols = os.Args[i+1]
+		} else if strings.HasPrefix(arg, "-symbols=") {
+			symbols = strings.TrimPrefix(arg, "-symbols=")
+		} else if arg == "-api" {
+			useAPI = true
+		} else if strings.HasPrefix(arg, "-apihost=") {
+			apiHost = strings.TrimPrefix(arg, "-apihost=")
+		} else if strings.HasPrefix(arg, "-apiport=") {
+			portStr := strings.TrimPrefix(arg, "-apiport=")
+			port, err := strconv.Atoi(portStr)
+			if err == nil {
+				apiPort = port
+			}
+		}
+	}
+
+	// Default symbols if not provided
+	if symbols == "" {
+		symbols = "BTC-USD,ETH-USD"
+		log.Printf("No symbols specified, using defaults: %s", symbols)
+	}
+
+	// Create the job
+	job := NewCryptoQuoteJob("", false)
+	
+	// Configure to use API service if requested
+	if useAPI {
+		if apiHost == "" {
+			apiHost = "localhost"
+		}
+		if apiPort == 0 {
+			apiPort = 8080
+		}
+		job.WithAPIService(apiHost, apiPort)
+	}
+
+	// Execute the job
+	ctx := context.Background()
+	params := map[string]string{
+		"symbols": symbols,
+	}
+	
+	log.Printf("Executing crypto quote job for symbols: %s", symbols)
+	err := job.Execute(ctx, params)
+	if err != nil {
+		log.Fatalf("Job execution failed: %v", err)
+	}
+	
+	log.Println("Job completed successfully")
 }
