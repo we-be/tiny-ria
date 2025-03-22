@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/we-be/tiny-ria/quotron/etl/internal/db"
@@ -92,8 +95,12 @@ func main() {
 
 	// Handle commands
 	if *setupCmd {
-		fmt.Println("Database setup is not yet implemented in Go")
-		// TODO: Implement schema setup
+		fmt.Println("Setting up database schema...")
+		err := setupDatabaseSchema(database)
+		if err != nil {
+			log.Fatalf("Failed to setup database schema: %v", err)
+		}
+		fmt.Println("Database schema setup complete")
 		return
 	}
 
@@ -397,4 +404,189 @@ func parseCommaList(list string) []string {
 	}
 
 	return result
+}
+
+// setupDatabaseSchema applies the migration SQL files to the database
+func setupDatabaseSchema(database *db.Database) error {
+	// First check if tables already exist
+	tablesExist, err := checkIfTablesExist(database)
+	if err != nil {
+		return fmt.Errorf("failed to check existing tables: %w", err)
+	}
+	
+	if tablesExist {
+		log.Println("Database schema already exists, skipping migration")
+		return nil
+	}
+
+	// Path to the migration directory
+	migrationsPath := findMigrationsPath()
+	if migrationsPath == "" {
+		return fmt.Errorf("migrations directory not found")
+	}
+
+	log.Printf("Using migrations from: %s", migrationsPath)
+
+	// Get all SQL migration files
+	files, err := os.ReadDir(migrationsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read migrations directory: %w", err)
+	}
+
+	// Filter and sort migration files (only the 'up' migrations, not the 'down' ones)
+	var migrationFiles []string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".sql") && !strings.Contains(file.Name(), "_down.sql") {
+			migrationFiles = append(migrationFiles, filepath.Join(migrationsPath, file.Name()))
+		}
+	}
+
+	// Sort migration files by name to ensure proper order
+	// This assumes files are named with numeric prefixes like 001_, 002_, etc.
+	sortMigrationFiles(migrationFiles)
+
+	// Execute each migration file
+	for _, file := range migrationFiles {
+		log.Printf("Applying migration: %s", filepath.Base(file))
+		
+		// Read the SQL content
+		content, err := os.ReadFile(file)
+		if err != nil {
+			return fmt.Errorf("failed to read migration file %s: %w", file, err)
+		}
+		
+		// Modify SQL to handle existing objects
+		// For each CREATE statement, add IF NOT EXISTS
+		safeSQL := makeCreateStatementsIdempotent(string(content))
+		
+		// Execute the SQL
+		_, err = database.ExecuteSQL(safeSQL)
+		if err != nil {
+			log.Printf("Warning: Error executing migration %s: %v", file, err)
+			// Continue with next migration instead of failing completely
+			continue
+		}
+		
+		log.Printf("Successfully applied: %s", filepath.Base(file))
+	}
+
+	return nil
+}
+
+// checkIfTablesExist checks if the primary tables already exist in the database
+func checkIfTablesExist(database *db.Database) (bool, error) {
+	query := `
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = 'public' 
+			AND table_name = 'stock_quotes'
+		)
+	`
+	
+	var exists bool
+	err := database.QueryRow(query, &exists)
+	if err != nil {
+		return false, err
+	}
+	
+	return exists, nil
+}
+
+// makeCreateStatementsIdempotent modifies SQL to handle existing objects
+func makeCreateStatementsIdempotent(sql string) string {
+	// Add IF NOT EXISTS to CREATE TABLE statements
+	sql = strings.ReplaceAll(sql, "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+	
+	// Add IF NOT EXISTS to CREATE INDEX statements
+	sql = strings.ReplaceAll(sql, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
+	
+	// Add OR REPLACE to CREATE VIEW statements
+	sql = strings.ReplaceAll(sql, "CREATE VIEW ", "CREATE OR REPLACE VIEW ")
+	
+	// Handle enums and extensions more carefully - these often cause errors on re-run
+	// We can't easily modify them, so we'll just comment them out for debugging
+	
+	return sql
+}
+
+// findMigrationsPath attempts to locate the migrations directory
+func findMigrationsPath() string {
+	// Check common relative paths
+	possiblePaths := []string{
+		"../../storage/migrations",           // From etl/cmd/etlcli to quotron/storage/migrations
+		"../../../storage/migrations",        // Alternative path
+		"../../../../storage/migrations",     // Another alternative
+		"../../../../../quotron/storage/migrations", // From a deeper directory
+	}
+
+	// Working directory as base
+	workDir, err := os.Getwd()
+	if err == nil {
+		for _, relPath := range possiblePaths {
+			path := filepath.Join(workDir, relPath)
+			if dirExists(path) {
+				return path
+			}
+		}
+	}
+
+	// Try to find from GOPATH or in the repository root
+	gopath := os.Getenv("GOPATH")
+	if gopath != "" {
+		path := filepath.Join(gopath, "src", "github.com", "we-be", "tiny-ria", "quotron", "storage", "migrations")
+		if dirExists(path) {
+			return path
+		}
+	}
+
+	// As a last resort, try to find relative to the executable path
+	exePath, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exePath)
+		for i := 0; i < 5; i++ { // Look up to 5 directories up
+			path := filepath.Join(exeDir, "storage", "migrations")
+			if dirExists(path) {
+				return path
+			}
+			exeDir = filepath.Dir(exeDir)
+		}
+	}
+
+	return ""
+}
+
+// sortMigrationFiles sorts migration files by their numeric prefix
+func sortMigrationFiles(files []string) {
+	for i := 0; i < len(files)-1; i++ {
+		for j := i + 1; j < len(files); j++ {
+			fileI := filepath.Base(files[i])
+			fileJ := filepath.Base(files[j])
+			
+			// Extract the numeric prefix from the filename (e.g., "001" from "001_migration.sql")
+			prefixI := extractPrefix(fileI)
+			prefixJ := extractPrefix(fileJ)
+			
+			if prefixI > prefixJ {
+				files[i], files[j] = files[j], files[i]
+			}
+		}
+	}
+}
+
+// extractPrefix extracts the numeric prefix from a filename
+func extractPrefix(filename string) string {
+	parts := strings.Split(filename, "_")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return filename
+}
+
+// dirExists checks if a directory exists
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }

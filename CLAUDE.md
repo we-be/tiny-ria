@@ -8,6 +8,7 @@
   - `browser-scraper/`: Python-based browser automation (Playwright/Selenium)
   - `auth-engine/`: Authentication and session management
   - `cli/`: Unified command-line interface for managing services (MAIN ENTRY POINT)
+  - `etl/`: ETL data processing pipeline with database integration
   - `health/`: Service health monitoring and reporting
   - `ingest-pipeline/`: ETL processing
   - `events/`: Event-driven data distribution
@@ -22,6 +23,11 @@ IMPORTANT: Always use the CLI as the primary way to interact with Quotron. DO NO
 - Run tests: `./quotron test [test_type]`
 - Golang tests: `./quotron test go`
 - Python tests: `./quotron test python`
+
+ETL-specific commands:
+- Setup database: `cd quotron/etl && ./etlcli -setup`
+- Process data: `cd quotron/etl && ./etlcli -quotes -file=/path/to/quotes.json`
+- Start ETL service: `cd quotron/cli && ./start_etl.sh`
 
 Only if CLI functionality isn't available:
 - Golang (api-scraper): `cd quotron/api-scraper && go test ./...`

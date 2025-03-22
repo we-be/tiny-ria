@@ -62,6 +62,22 @@ type Database struct {
 	mu     sync.Mutex // for thread safety
 }
 
+// ExecuteSQL executes an arbitrary SQL query
+func (d *Database) ExecuteSQL(sql string) (sql.Result, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	
+	return d.db.Exec(sql)
+}
+
+// QueryRow executes a query that returns a single row
+func (d *Database) QueryRow(query string, dest interface{}) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	
+	return d.db.QueryRow(query).Scan(dest)
+}
+
 // NewDatabase creates a new database connection with the given configuration
 func NewDatabase(config Config) (*Database, error) {
 	connStr := fmt.Sprintf(
