@@ -131,6 +131,7 @@ func usage() {
 	fmt.Println("  import-sp500        Import S&P 500 data")
 	fmt.Println("  scheduler <SUBCOMMAND>  Manage or interact with the scheduler:")
 	fmt.Println("                       - run-job <JOBNAME>: Run a job immediately")
+	fmt.Println("                       - crypto_quotes: Fetch cryptocurrency quotes")
 	fmt.Println("                       - status: Show scheduler status")
 	fmt.Println("                       - help: Show detailed scheduler help")
 	fmt.Println("  health              Check health of services")
@@ -383,6 +384,21 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 		
 		fmt.Printf("✅ Job '%s' completed. Data should be available in Redis.\n", jobName)
 
+	case "crypto_quotes":
+		// Shortcut for running the crypto quotes job
+		fmt.Println("Fetching cryptocurrency quotes...")
+		
+		// Run the job with a timeout context
+		jobCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		
+		err := manager.RunSchedulerJob(jobCtx, "crypto_quotes")
+		if err != nil {
+			log.Fatalf("Failed to run crypto quotes job: %v", err)
+		}
+		
+		fmt.Println("✅ Cryptocurrency quotes fetched successfully. Data should be available in Redis.")
+
 	case "status":
 		// Show scheduler status
 		status, err := manager.GetServiceStatus()
@@ -400,7 +416,7 @@ func handleSchedulerCommand(ctx context.Context, args []string) {
 
 	default:
 		fmt.Printf("Unknown scheduler sub-command: %s\n", subCommand)
-		fmt.Println("Available sub-commands: run-job, status, help")
+		fmt.Println("Available sub-commands: run-job, crypto_quotes, status, help")
 		fmt.Println("\nRun 'quotron scheduler help' for more information")
 	}
 }
@@ -412,12 +428,19 @@ func printSchedulerHelp() {
 	fmt.Println()
 	fmt.Println("Available subcommands:")
 	fmt.Println("  run-job <JOBNAME>   Run a specific job immediately")
+	fmt.Println("  crypto_quotes       Shortcut to fetch cryptocurrency quotes")
 	fmt.Println("  status              Show scheduler status and job information")
 	fmt.Println("  help                Show this help message")
+	fmt.Println()
+	fmt.Println("Available jobs for run-job:")
+	fmt.Println("  market_indices      Fetch market index data (SPY, QQQ, DIA)")
+	fmt.Println("  stock_quotes        Fetch stock quotes for configured symbols")
+	fmt.Println("  crypto_quotes       Fetch cryptocurrency quotes (BTC, ETH, etc.)")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  quotron scheduler run-job market_indices  Run market index job now")
 	fmt.Println("  quotron scheduler run-job stock_quotes    Run stock quotes job now")
+	fmt.Println("  quotron scheduler crypto_quotes           Run cryptocurrency quotes job now")
 }
 
 // formatStatus formats a service status as a colored string
