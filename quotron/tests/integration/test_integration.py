@@ -31,10 +31,6 @@ def test_api_scraper():
     """Test the API scraper functionality."""
     logger.info("Testing API scraper...")
     
-    # Intentionally fail to test the API scraper badge
-    logger.error("INTENTIONAL TEST FAILURE: Testing API scraper badge failure status")
-    sys.exit(1)  # Force test to fail
-    
     # Run the Go API scraper with a test symbol
     # Check if we have an Alpha Vantage API key in the environment
     import subprocess
