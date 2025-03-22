@@ -2,74 +2,98 @@
 
 This test plan outlines the steps to verify that our changes have properly fixed the issue where the scheduler service was bypassing the ETL pipeline by writing directly to the database.
 
-## 1. Unit Tests
+## 1. Setup and Preparation
 
-### Redis Publishing Tests
-- Verify that `PublishToStockStream()` method correctly adds messages to the Redis stock stream
-- Verify that `PublishToCryptoStream()` method correctly adds messages to the Redis crypto stream
-- Verify that `PublishToMarketIndexStream()` method correctly adds messages to the Redis market index stream
-
-### Scheduler Job Tests
-- Verify that `StockQuoteJob.fetchQuoteFromAPI()` publishes to Redis and doesn't access the database directly
-- Verify that `CryptoQuoteJob.fetchQuoteFromAPI()` publishes to Redis and doesn't access the database directly
-- Verify that `MarketIndexJob.fetchMarketDataFromAPI()` publishes to Redis and doesn't access the database directly
-
-### ETL Service Tests
-- Verify that the ETL service correctly subscribes to all Redis channels including the new market index channel
-- Verify that the ETL service correctly processes stock, crypto, and market index messages from Redis streams
-- Verify that the `processMarketIndex()` function correctly inserts data into the database
-
-## 2. Integration Tests
-
-### Redis Publishing Flow
-- Run the test script `./test_crypto_etl` with multiple symbols
-- Verify that messages are published to both Redis PubSub and Streams using `./crypto_redis_monitor`
-- Check that different types of data (stocks, crypto, market indices) are properly published to their respective channels/streams
-
-### End-to-End Flow
-- Run `./etl_integration_test.sh` to test the complete flow
-- Verify that the ETL service consumes messages from all Redis channels and streams
-- Check the Redis monitor output to confirm proper message flow
-- Query the database to confirm data has been inserted correctly
-
-## 3. Regression Tests
-
-### Legacy PubSub Flow
-- Verify that legacy PubSub publishers still work with the updated ETL service
-- Confirm that the PubSub-to-Stream bridge in the ETL service handles all message types correctly
-
-### Database Schema Compatibility
-- Verify that the database schema is compatible with the new data types
-- Check that the market index schema exists and can be written to
-
-## 4. Manual Tests
-
-### Scheduler Service Tests
-- Manually run the scheduler service with the updated code
-- Verify that no direct database calls are made by enabling debug logs
-- Check Redis to ensure messages are flowing through the proper channels/streams
-
-### Complete System Flow
-- Start all components (scheduler, ETL, Redis) together
-- Run a scheduler job that processes stocks, crypto, and market indices
-- Verify data flows correctly from scheduler → Redis → ETL → Database
-
-## 5. Performance Tests
-
-### Redis Performance
-- Measure message throughput through Redis under load
-- Verify that multiple consumers (ETL workers) can process messages efficiently
-
-### Database Performance
-- Check database query performance when receiving data through the ETL pipeline
-- Verify that batch processing works correctly for high-volume scenarios
-
-## 6. Monitoring Tests
+### Redis Stream Setup
+- Run the `./setup_redis_streams.sh` script to initialize Redis streams and consumer groups
+- Verify that all required streams (`quotron:stocks:stream`, `quotron:crypto:stream`, `quotron:indices:stream`) exist
+- Confirm that the consumer group `quotron:etl` is properly created for each stream
 
 ### Redis Monitoring
-- Verify that Redis monitoring tools show the correct channels and streams
-- Confirm that subscriber counts are accurate in the Redis monitor
+- Run `./crypto_redis_monitor` to observe Redis channels and streams
+- Verify that the monitor can detect messages on both PubSub channels and Streams
+- Check that message counts are tracked correctly
 
-### ETL Service Monitoring
-- Check ETL logs to ensure that all message types are processed correctly
-- Verify that error handling works properly for malformed messages
+## 2. Component Tests
+
+### Publisher Tests
+- Use `test_crypto_etl_flow.go` to test publishing to Redis
+- Verify that messages are correctly published to both PubSub and Streams
+- Confirm that message format is consistent with what the ETL service expects
+
+### Consumer Tests
+- Use `test_crypto_etl_flow.go` to test consuming from Redis
+- Verify that messages can be consumed from both PubSub and Streams
+- Check that consumer groups work properly with acknowledgments
+
+### Scheduler Job Tests
+- Run `go run quotron_crypto_job.go -symbols=BTC-USD,ETH-USD`
+- Verify that the job correctly fetches data and publishes to Redis
+- Confirm that no direct database access occurs
+
+## 3. Integration Tests
+
+### Complete ETL Flow Test
+- Run `./etl_integration_test.sh` to test the entire pipeline
+- Verify the test generates data, publishes to Redis, and consumes it
+- Check that both PubSub and Stream mechanisms work together
+
+### Redis-to-ETL Communication
+- Start the ETL service: `quotron start etl`
+- Run the crypto job: `go run quotron_crypto_job.go`
+- Verify that messages flow from the job to Redis to ETL
+- Check ETL logs to confirm messages are processed
+
+### Scheduler-to-Database Flow
+- Start all services: `quotron start scheduler etl`
+- Verify scheduler jobs publish to Redis instead of writing directly to DB
+- Confirm ETL service correctly processes the messages and writes to DB
+- Query the database to verify data is stored correctly
+
+## 4. Error Handling and Recovery
+
+### Stream Recovery
+- Test ETL service recovery after disconnection from Redis
+- Verify that unacknowledged messages are redelivered
+- Check that the service resumes processing from where it left off
+
+### Invalid Message Handling
+- Test with malformed messages sent to Redis
+- Verify that ETL service properly handles parsing errors
+- Confirm that valid messages continue to be processed
+
+## 5. Monitoring and Logging
+
+### Real-time Monitoring
+- Run `./crypto_redis_monitor -v` during system operation
+- Verify that all message types (stocks, crypto, indices) are flowing
+- Check for any errors or anomalies in the message flow
+
+### Log Analysis
+- Examine ETL service logs to verify processing of all message types
+- Check for subscription confirmations to all channels
+- Verify proper initialization of all streams and consumer groups
+
+## 6. Performance and Load Testing
+
+### Multi-worker Test
+- Configure ETL with multiple workers
+- Generate high volume of messages to test parallel processing
+- Verify that processing time scales appropriately with worker count
+
+### Stream Backlog Test
+- Generate a backlog of messages in Redis streams
+- Start the ETL service and verify it processes the backlog
+- Check that no messages are lost during catch-up
+
+## 7. Validation Checklist
+
+Before considering the fix complete, verify:
+
+- [ ] ETL service subscribes to ALL three channels (stocks, crypto, indices)
+- [ ] Messages flow correctly through BOTH PubSub and Streams
+- [ ] Scheduler publishes to Redis only (no direct DB access)
+- [ ] Consumer groups are properly maintained for reliable processing
+- [ ] No duplicate message processing occurs
+- [ ] Database schema correctly stores all message types
+- [ ] Error handling and recovery mechanisms work properly
