@@ -42,6 +42,16 @@ Only if CLI functionality isn't available:
 - Error handling: Use structured errors with context
 - Documentation: Use docstrings for all public functions
 
+## Database Schema
+- PostgreSQL database with migrations in `quotron/storage/migrations/`
+- Key tables:
+  - `stock_quotes`: Stock price data with column `symbol`
+  - `market_indices`: Market index data with column `index_name` (not `name`)
+  - `data_batches`: Metadata for data batches
+- Exchange enum values: 'NYSE', 'NASDAQ', 'AMEX', 'OTC', 'OTHER', 'CRYPTO'
+- See `/quotron/storage/README.md` for more details
+- Run migrations: `cd quotron/api-service && ./scripts/migrate.sh`
+
 ## Commit Messages
 - Format: `<type>(quotron/<module>): <subject>`
 - Types: feat, fix, docs, style, refactor, test, chore

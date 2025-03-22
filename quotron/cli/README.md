@@ -141,12 +141,14 @@ The CLI manages the following services:
 - **API Service**: Go service that provides REST API endpoints with smart failover between data sources
 - **Scheduler**: Go service that schedules data collection jobs
 - **Dashboard**: Python service that provides a web UI
+- **ETL Service**: Go service that processes data from Redis streams and stores it in the database
 - **Health Service**: Go service that monitors and reports on system health
 
 The services have the following dependencies:
 - API Service requires YFinance Proxy (automatically starts it if needed)
 - Dashboard typically requires API Service (automatically starts it if needed)
-- Scheduler can work with either API Service or direct data sources 
+- Scheduler can work with either API Service or direct data sources
+- ETL Service requires Redis and PostgreSQL database access
 
 When starting services with `quotron start`, the CLI automatically resolves these dependencies, ensuring proper service startup order.
 

@@ -18,10 +18,11 @@ The storage module provides database access and management for financial data in
 
 The main database tables are:
 
-- **stock_quotes**: Individual stock quote records
-- **market_indices**: Market index value records
+- **stock_quotes**: Individual stock quote records with columns for symbol, price, exchange, etc.
+- **market_indices**: Market index value records with `index_name` as the identifier column
 - **data_batches**: Metadata for data batches
 - **batch_statistics**: Statistical data computed from batches
+- **crypto_quotes**: View for cryptocurrency quotes (filtered from stock_quotes where exchange='CRYPTO')
 
 ## Usage
 
@@ -70,6 +71,28 @@ python storage/sql/db_manager.py up
 # Roll back the most recent migration
 python storage/sql/db_manager.py down
 ```
+
+Alternatively, you can use the API service migration script:
+
+```bash
+cd quotron/api-service
+./scripts/migrate.sh
+```
+
+#### Important Schema Notes
+
+1. **Market Indices Table**:
+   - Uses `index_name` column (NOT `name`) to identify market indices
+   - Example index names: '^GSPC' (S&P 500), '^DJI' (Dow Jones)
+
+2. **Exchange Enum**:
+   - Valid values are: 'NYSE', 'NASDAQ', 'AMEX', 'OTC', 'OTHER', 'CRYPTO'
+   - 'CRYPTO' is used for all cryptocurrency quotes
+
+3. **Crypto Quotes**:
+   - Stored in the same `stock_quotes` table as regular stocks
+   - Use `exchange = 'CRYPTO'` to identify crypto quotes
+   - Can be accessed via the `crypto_quotes` view
 
 ## Configuration
 
