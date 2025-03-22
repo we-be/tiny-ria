@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'quotron/cli/**'
+      - '.github/workflows/cli-release.yml'
   workflow_dispatch:  # Allow manual triggering
 
 # Need write permissions to create releases
@@ -30,14 +31,25 @@ jobs:
         VERSION=$(git rev-parse --short HEAD)
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         
-    - name: Build CLI
+    - name: Build CLI and update READMEs
       run: |
         cd quotron/cli
+        # First run build.sh with UPDATE_README=1 to update badges in READMEs
+        UPDATE_README=1 ./build.sh
+        # Build for release with specific name
         go build -o quotron-linux -v ./cmd/main
         chmod +x quotron-linux
         # Copy to a top-level directory to make it easier to find
         mkdir -p ../../artifacts
         cp quotron-linux ../../artifacts/
+        
+    - name: Commit README changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add README.md quotron/cli/README.md
+        git diff --staged --quiet || git commit -m "docs: update CLI badges with latest commit hash [skip ci]"
+        git push
         
     - name: Create Release
       id: create_release

@@ -12,9 +12,9 @@ go build -o quotron ./cmd/main
 echo "Installing to ../quotron binary..."
 cp quotron ..
 
-# Update top-level README only if we're in a CI environment or if UPDATE_README=1
-# This ensures the badge is only updated during CI builds or when explicitly requested
-# To manually update the README: UPDATE_README=1 ./build.sh
+# Update READMEs only if we're in a CI environment or if UPDATE_README=1
+# This ensures the badges are only updated during CI builds or when explicitly requested
+# To manually update the READMEs: UPDATE_README=1 ./build.sh
 if [ -n "$CI" ] || [ "$UPDATE_README" = "1" ]; then
   # Get current git commit hash
   COMMIT_HASH=$(git rev-parse --short HEAD)
@@ -22,13 +22,27 @@ if [ -n "$CI" ] || [ "$UPDATE_README" = "1" ]; then
   # Generate CLI help output
   CLI_HELP=$(./quotron help)
 
+  # Update CLI's own README.md
+  CLI_README="./README.md"
+  if [ -f "$CLI_README" ]; then
+    echo "Updating CLI README.md..."
+    
+    # Update the CLI badge with current commit hash
+    sed -i "s/\[\!\[CLI Build:[^]]*\]/[![CLI Build:${COMMIT_HASH}]/" "$CLI_README"
+    sed -i "s/label=CLI%20Build%3A[^&]*/label=CLI%20Build%3A${COMMIT_HASH}/" "$CLI_README"
+    
+    echo "CLI README.md updated with current commit hash ${COMMIT_HASH}"
+  else
+    echo "Warning: CLI README.md not found at $CLI_README"
+  fi
+  
   # Check if top-level README exists
   TOP_README="../../README.md"
   if [ -f "$TOP_README" ]; then
     echo "Updating top-level README.md..."
     
     # Update the CLI badge with current commit hash - both the badge text and the label parameter
-    sed -i "s/^\[\!\[CLI:[^]]*|/[![CLI:${COMMIT_HASH}|/" "$TOP_README"
+    sed -i "s/\[\!\[CLI:[^]]*\]/[![CLI:${COMMIT_HASH}]/" "$TOP_README"
     sed -i "s/label=CLI%3A[^&]*/label=CLI%3A${COMMIT_HASH}/" "$TOP_README"
     
     # Add CLI help section if it doesn't exist or update existing section
