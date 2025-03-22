@@ -116,29 +116,8 @@ services:
     networks:
       - quotron-network
       
-  # Dashboard for system monitoring and control
-  dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: dashboard
-    ports:
-      - "8501:8501"
-    environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=quotron
-      - DB_PASSWORD=quotron
-      - DB_NAME=quotron
-      - SCHEDULER_PATH=/app/scheduler
-    volumes:
-      - ./dashboard:/app/dashboard
-      - ./scheduler:/app/scheduler
-    networks:
-      - quotron-network
-    depends_on:
-      - postgres
-      - scheduler
+  # Note: Dashboard functionality is now integrated directly into API service
+  # and accessible through the API service's port (8080)
       
   # Scheduler for running periodic jobs
   scheduler:

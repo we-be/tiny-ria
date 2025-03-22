@@ -325,9 +325,9 @@ Key configurations include:
 
 4. **Service Not Starting**: Check the log files for detailed error information:
    ```bash
-   tail -f /tmp/dashboard.log
    tail -f /tmp/yfinance_proxy.log
    tail -f /tmp/scheduler.log
+   tail -f /tmp/api_service.log
    ```
 
 ## Data Source Health Monitoring
@@ -335,11 +335,12 @@ Key configurations include:
 The system includes a robust data source health monitoring system:
 
 ### Health Dashboard
-The dashboard provides a visual overview of all data sources with:
+The health dashboard (integrated into the API service) provides a visual overview of all data sources with:
 - At-a-glance status indicators for each source
 - Health score metrics and trends
 - Visual cards showing current status
 - Detailed error information for failing sources
+- Accessible at http://localhost:8080/health or through the API service UI
 
 ### Automatic Recovery
 The system can automatically recover failing data sources:
@@ -349,7 +350,7 @@ The system can automatically recover failing data sources:
 - Health status tracking after recovery attempts
 
 ### AI Diagnostics
-When you click the "AI Diagnose" button in the dashboard, a comprehensive diagnostics report is generated at `quotron/diagnostics_report.md`. This report includes:
+When you click the "AI Diagnose" button in the API service's health dashboard, a comprehensive diagnostics report is generated at `quotron/diagnostics_report.md`. This report includes:
 - Overall system health score
 - Status of all data sources
 - Detailed analysis of failing sources
@@ -387,11 +388,12 @@ pip install -r requirements.txt
 python yfinance_proxy.py
 ```
 
-### Dashboard
+### API Service (with integrated dashboard)
 ```
-cd dashboard
-pip install -r requirements.txt
-python dashboard.py
+cd api-service
+go build -o api-service ./cmd/server
+./api-service --port=8080
+# Dashboard UI available at http://localhost:8080
 ```
 
 ### Browser Scraper

@@ -35,7 +35,7 @@ go build -o api-scraper ./cmd/main/main.go
   - Alpha Vantage provider for authentic market data
   - Yahoo Finance provider as a free alternative with higher rate limits
 - **Browser Scraper** (Python/Playwright): Extracts data from JS-heavy websites
-- **API Service** (Go): Middleware layer that provides a standardized API interface
+- **API Service** (Go): Middleware layer that provides a standardized API interface and dashboard UI
 - **Storage** (PostgreSQL): Persists financial data for historical analysis
 - **Scheduler** (Go): Orchestrates recurring data collection tasks
 - **Health** (Go): Monitors and reports on the health of all services
