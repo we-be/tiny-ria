@@ -18,12 +18,14 @@ import (
 
 const (
 	// Use both stream and pub/sub for backward compatibility
-	StockChannel   = "quotron:stocks"    // Legacy pub/sub channel
-	StockStream    = "quotron:stocks:stream" // New stream name
-	CryptoChannel  = "quotron:crypto"    // Legacy pub/sub channel for crypto
-	CryptoStream   = "quotron:crypto:stream" // New stream name for crypto
-	ConsumerGroup  = "quotron:etl"      // Consumer group name
-	StreamMaxLen   = 1000              // Maximum number of messages to keep in the stream
+	StockChannel    = "quotron:stocks"     // Legacy pub/sub channel
+	StockStream     = "quotron:stocks:stream"  // New stream name
+	CryptoChannel   = "quotron:crypto"     // Legacy pub/sub channel for crypto
+	CryptoStream    = "quotron:crypto:stream"  // New stream name for crypto
+	IndexChannel    = "quotron:indices"    // Legacy pub/sub channel for market indices
+	IndexStream     = "quotron:indices:stream" // New stream name for market indices
+	ConsumerGroup   = "quotron:etl"       // Consumer group name
+	StreamMaxLen    = 1000               // Maximum number of messages to keep in the stream
 )
 
 // StockQuote represents a stock quote from various sources
@@ -35,6 +37,16 @@ type StockQuote struct {
 	Volume        int64     `json:"volume"`
 	Timestamp     time.Time `json:"timestamp"`
 	Exchange      string    `json:"exchange"`
+	Source        string    `json:"source"`
+}
+
+// MarketIndex represents a market index from various sources
+type MarketIndex struct {
+	IndexName     string    `json:"index_name"`
+	Value         float64   `json:"value"`
+	Change        float64   `json:"change"`
+	ChangePercent float64   `json:"change_percent"`
+	Timestamp     time.Time `json:"timestamp"`
 	Source        string    `json:"source"`
 }
 
@@ -164,6 +176,12 @@ func (s *Service) initializeStream(ctx context.Context) error {
 		// Continue without the crypto stream - don't fail the service
 	}
 	
+	// Initialize market index stream
+	if err := s.initializeSingleStream(ctx, IndexStream); err != nil {
+		log.Printf("Warning: Could not initialize market index stream: %v - continuing without it", err)
+		// Continue without the market index stream - don't fail the service
+	}
+	
 	return nil
 }
 
@@ -254,8 +272,8 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 	})
 	defer client.Close()
 	
-	// Subscribe to both stock and crypto channels
-	pubsub := client.Subscribe(ctx, StockChannel, CryptoChannel)
+	// Subscribe to all channels (stocks, crypto, and market indices)
+	pubsub := client.Subscribe(ctx, StockChannel, CryptoChannel, IndexChannel)
 	defer pubsub.Close()
 	
 	// Wait for confirmation of subscription
@@ -264,7 +282,7 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 		log.Printf("PubSub Listener: Failed to subscribe: %v", err)
 		return
 	}
-	log.Printf("PubSub Listener: Subscribed to channels %s and %s", StockChannel, CryptoChannel)
+	log.Printf("PubSub Listener: Subscribed to channels %s, %s, and %s", StockChannel, CryptoChannel, IndexChannel)
 	
 	// Process messages
 	ch := pubsub.Channel()
@@ -287,6 +305,8 @@ func (s *Service) runPubsubListener(ctx context.Context) {
 				targetStream = StockStream
 			case CryptoChannel:
 				targetStream = CryptoStream
+			case IndexChannel:
+				targetStream = IndexStream
 			default:
 				log.Printf("PubSub Listener: Unknown channel %s, skipping message", msg.Channel)
 				continue
@@ -344,6 +364,12 @@ func (s *Service) runStreamWorker(ctx context.Context, workerID int) {
 				time.Sleep(1 * time.Second) // Avoid tight loop on persistent errors
 			}
 			
+			// Read from market index stream
+			if err := s.processStream(ctx, workerID, consumerName, client, IndexStream); err != nil {
+				log.Printf("Worker %d: Error processing market index stream: %v", workerID, err)
+				time.Sleep(1 * time.Second) // Avoid tight loop on persistent errors
+			}
+			
 			// Brief pause to avoid CPU spinning if no messages
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -383,22 +409,42 @@ func (s *Service) processStream(ctx context.Context, workerID int, consumerName 
 				continue
 			}
 			
-			// Parse the message
-			var quote StockQuote
-			if err := json.Unmarshal([]byte(data), &quote); err != nil {
-				log.Printf("Worker %d: Failed to parse message: %v", workerID, err)
-				// Acknowledge message even if we can't parse it
-				client.XAck(ctx, streamName, ConsumerGroup, message.ID)
-				continue
+			var err error
+			// Process based on stream type
+			switch streamName {
+			case StockStream, CryptoStream:
+				// Parse and process stock/crypto quote
+				var quote StockQuote
+				if err = json.Unmarshal([]byte(data), &quote); err != nil {
+					log.Printf("Worker %d: Failed to parse quote message: %v", workerID, err)
+				} else {
+					err = s.processQuote(ctx, &quote)
+					if err == nil {
+						log.Printf("Worker %d: Processed quote for %s from %s: $%.2f", 
+							workerID, quote.Symbol, streamName, quote.Price)
+					}
+				}
+			case IndexStream:
+				// Parse and process market index
+				var index MarketIndex
+				if err = json.Unmarshal([]byte(data), &index); err != nil {
+					log.Printf("Worker %d: Failed to parse market index message: %v", workerID, err)
+				} else {
+					err = s.processMarketIndex(ctx, &index)
+					if err == nil {
+						log.Printf("Worker %d: Processed market index %s: %.2f", 
+							workerID, index.IndexName, index.Value)
+					}
+				}
+			default:
+				log.Printf("Worker %d: Unknown stream type %s", workerID, streamName)
+				err = fmt.Errorf("unknown stream type")
 			}
 			
-			// Process the quote
-			if err := s.processQuote(ctx, &quote); err != nil {
-				log.Printf("Worker %d: Error processing quote: %v", workerID, err)
+			if err != nil {
+				log.Printf("Worker %d: Error processing message: %v", workerID, err)
 				// Don't acknowledge on error - it will be redelivered
 			} else {
-				log.Printf("Worker %d: Processed quote for %s from %s: $%.2f", 
-					workerID, quote.Symbol, streamName, quote.Price)
 				// Acknowledge successful processing
 				client.XAck(ctx, streamName, ConsumerGroup, message.ID)
 			}
@@ -433,6 +479,36 @@ func (s *Service) processQuote(ctx context.Context, quote *StockQuote) error {
 		quote.Volume,
 		quote.Timestamp,
 		exchange,
+		source,
+	)
+	
+	if err != nil {
+		return fmt.Errorf("database error: %w", err)
+	}
+	
+	return nil
+}
+
+// processMarketIndex handles a single market index
+func (s *Service) processMarketIndex(ctx context.Context, index *MarketIndex) error {
+	// Map source to valid enum value
+	source := mapSourceToEnum(index.Source)
+	
+	// Store in database
+	query := `
+		INSERT INTO market_indices (
+			index_name, value, change, change_percent, timestamp, source
+		) VALUES ($1, $2, $3, $4, $5, $6)
+	`
+	
+	_, err := s.db.ExecContext(
+		ctx,
+		query,
+		index.IndexName,
+		index.Value,
+		index.Change,
+		index.ChangePercent,
+		index.Timestamp,
 		source,
 	)
 	
