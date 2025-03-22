@@ -182,18 +182,11 @@ func (j *MarketIndexJob) fetchMarketDataFromAPI(ctx context.Context, index strin
 		}
 	}
 	
-	// Publish to Redis (both PubSub and Stream for backward compatibility)
+	// Publish to Redis Stream
 	redisClient := client.NewRedisClient("")
 	defer redisClient.Close()
 	
-	// 1. Publish to Redis PubSub channel
-	if err := redisClient.PublishMarketIndex(ctx, marketData); err != nil {
-		log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-	} else {
-		log.Printf("Published market data for %s to Redis PubSub channel", index)
-	}
-	
-	// 2. Publish to Redis Stream
+	// Publish to Redis Stream
 	if err := redisClient.PublishToMarketIndexStream(ctx, marketData); err != nil {
 		log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 	} else {
@@ -261,18 +254,11 @@ func (j *MarketIndexJob) fetchMarketData(ctx context.Context, index string) erro
 					marketData.ChangePercent = changePercent
 				}
 				
-				// Publish to Redis (both PubSub and Stream)
+				// Publish to Redis Stream
 				redisClient := client.NewRedisClient("")
 				defer redisClient.Close()
 				
-				// 1. Publish to Redis PubSub channel
-				if err := redisClient.PublishMarketIndex(ctx, marketData); err != nil {
-					log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-				} else {
-					log.Printf("Published market data for %s to Redis PubSub channel", index)
-				}
-				
-				// 2. Publish to Redis Stream
+				// Publish to Redis Stream
 				if err := redisClient.PublishToMarketIndexStream(ctx, marketData); err != nil {
 					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 				} else {
@@ -340,18 +326,11 @@ func (j *MarketIndexJob) fetchMarketDataYahoo(ctx context.Context, index string)
 					marketData.ChangePercent = changePercent
 				}
 				
-				// Publish to Redis (both PubSub and Stream)
+				// Publish to Redis Stream only
 				redisClient := client.NewRedisClient("")
 				defer redisClient.Close()
 				
-				// 1. Publish to Redis PubSub channel
-				if err := redisClient.PublishMarketIndex(ctx, marketData); err != nil {
-					log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-				} else {
-					log.Printf("Published market data for %s to Redis PubSub channel", index)
-				}
-				
-				// 2. Publish to Redis Stream
+				// Publish to Redis Stream
 				if err := redisClient.PublishToMarketIndexStream(ctx, marketData); err != nil {
 					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 				} else {

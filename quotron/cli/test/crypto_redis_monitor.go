@@ -13,18 +13,15 @@ import (
 )
 
 const (
-	// Redis channels and streams
-	StockChannel   = "quotron:stocks"
+	// Redis streams
 	StockStream    = "quotron:stocks:stream"
-	CryptoChannel  = "quotron:crypto"
 	CryptoStream   = "quotron:crypto:stream"
-	IndexChannel   = "quotron:indices"
 	IndexStream    = "quotron:indices:stream"
 	RedisAddr      = "localhost:6379"
 )
 
 func main() {
-	log.Println("Starting Redis Monitor for Quotron Channels and Streams...")
+	log.Println("Starting Redis Monitor for Quotron Streams...")
 
 	// Parse command-line arguments
 	var showMessageContent bool
@@ -59,32 +56,15 @@ func main() {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	log.Printf("Connected to Redis at %s", RedisAddr)
-
-	// Subscribe to all PubSub channels
-	pubsub := client.Subscribe(ctx, StockChannel, CryptoChannel, IndexChannel)
-	defer pubsub.Close()
-
-	// Verify subscription
-	_, err = pubsub.Receive(ctx)
-	if err != nil {
-		log.Fatalf("Failed to subscribe to channels: %v", err)
-	}
-	log.Printf("Subscribed to channels: %s, %s, %s", StockChannel, CryptoChannel, IndexChannel)
-
-	// Channel for PubSub messages
-	msgCh := pubsub.Channel()
-
+	
 	// Counter for messages
 	messageCount := map[string]int{
-		StockChannel:  0,
-		CryptoChannel: 0,
-		IndexChannel:  0,
 		StockStream:   0,
 		CryptoStream:  0,
 		IndexStream:   0,
 	}
 
-	// Start a goroutine to periodically display counts
+	// Start a goroutine to periodically display counts and monitor streams
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -94,22 +74,28 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// Get stream counts
+				// Get stream counts and latest messages
 				for _, stream := range []string{StockStream, CryptoStream, IndexStream} {
+					// Get stream info
 					info, err := client.XInfoStream(ctx, stream).Result()
 					if err == nil {
 						messageCount[stream] = int(info.Length)
+						
+						// Get latest messages if verbose mode is enabled
+						if showMessageContent {
+							messages, err := client.XRevRange(ctx, stream, "+", "-", 1).Result()
+							if err == nil && len(messages) > 0 {
+								log.Printf("Latest message on %s: %v", stream, messages[0].Values)
+							}
+						}
+					} else {
+						log.Printf("Error getting stream info for %s: %v", stream, err)
 					}
 				}
 
 				// Display counts
 				fmt.Println("\n--- Message Counts ---")
-				fmt.Printf("PubSub Channels:\n")
-				fmt.Printf("  %s: %d messages\n", StockChannel, messageCount[StockChannel])
-				fmt.Printf("  %s: %d messages\n", CryptoChannel, messageCount[CryptoChannel])
-				fmt.Printf("  %s: %d messages\n", IndexChannel, messageCount[IndexChannel])
-				
-				fmt.Printf("\nStreams:\n")
+				fmt.Printf("Streams:\n")
 				fmt.Printf("  %s: %d messages\n", StockStream, messageCount[StockStream])
 				fmt.Printf("  %s: %d messages\n", CryptoStream, messageCount[CryptoStream])
 				fmt.Printf("  %s: %d messages\n", IndexStream, messageCount[IndexStream])
@@ -118,29 +104,8 @@ func main() {
 		}
 	}()
 
-	// Main loop for processing PubSub messages
-	log.Printf("Waiting for messages...")
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Shutting down...")
-			return
-
-		case msg, ok := <-msgCh:
-			if !ok {
-				log.Println("PubSub channel closed")
-				return
-			}
-
-			// Increment counter
-			messageCount[msg.Channel]++
-			
-			// Log the message
-			if showMessageContent {
-				log.Printf("Channel: %s, Message: %s", msg.Channel, msg.Payload)
-			} else {
-				log.Printf("Received message on channel: %s", msg.Channel)
-			}
-		}
-	}
+	// Main loop just keeps the program running
+	log.Printf("Monitoring Redis streams. Press Ctrl+C to exit...")
+	<-ctx.Done()
+	log.Println("Shutting down...")
 }

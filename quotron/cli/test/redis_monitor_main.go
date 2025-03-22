@@ -11,15 +11,16 @@ import (
 )
 
 const (
-	StockQuotesChannel = "quotron:stocks"
-	MarketDataChannel = "quotron:queue:market_indices"
+	StockStream  = "quotron:stocks:stream"
+	CryptoStream = "quotron:crypto:stream"
+	IndexStream  = "quotron:indices:stream"
 )
 
 func main() {
 	// Set logging
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.SetOutput(os.Stdout)
-	log.Println("Starting Redis channel monitor...")
+	log.Println("Starting Redis stream monitor...")
 
 	// Connect to Redis
 	client := redis.NewClient(&redis.Options{
@@ -46,25 +47,35 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			// Check channels
-			stockSubs, err := client.PubSubNumSub(ctx, StockQuotesChannel).Result()
-			if err != nil {
-				log.Printf("Error checking stock channel: %v", err)
-				continue
-			}
+			// Check streams
+			fmt.Printf("[%s] Stream counts:\n", time.Now().Format("15:04:05.000"))
 			
-			marketSubs, err := client.PubSubNumSub(ctx, MarketDataChannel).Result()
-			if err != nil {
-				log.Printf("Error checking market channel: %v", err)
-				continue
-			}
-			
-			// Display results
-			fmt.Printf("[%s] Channel subscribers - %s: %d, %s: %d\n", 
-				time.Now().Format("15:04:05.000"),
-				StockQuotesChannel, stockSubs[StockQuotesChannel],
-				MarketDataChannel, marketSubs[MarketDataChannel])
+			for _, stream := range []string{StockStream, CryptoStream, IndexStream} {
+				info, err := client.XInfoStream(ctx, stream).Result()
+				if err != nil {
+					log.Printf("Error checking stream %s: %v", stream, err)
+					continue
+				}
 				
+				fmt.Printf("  %s: %d messages\n", stream, info.Length)
+				
+				// Check consumer groups
+				groups, err := client.XInfoGroups(ctx, stream).Result()
+				if err != nil {
+					log.Printf("Error checking consumer groups for %s: %v", stream, err)
+					continue
+				}
+				
+				if len(groups) > 0 {
+					fmt.Printf("  Consumer groups for %s:\n", stream)
+					for _, group := range groups {
+						fmt.Printf("    %s: consumers=%d, pending=%d, last-delivered-id=%s\n", 
+							group.Name, group.Consumers, group.Pending, group.LastDeliveredID)
+					}
+				}
+			}
+			fmt.Println()
+					
 		case <-timeout:
 			fmt.Println("\nMonitoring finished")
 			return

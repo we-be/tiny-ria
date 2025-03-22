@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	CryptoQuoteChannel = "quotron:crypto"
-	CryptoQuoteStream  = "quotron:crypto:stream" // Added stream name for Redis Streams
+	CryptoQuoteStream  = "quotron:crypto:stream" // Stream name for Redis Streams
 )
 
 // CryptoQuoteJob fetches cryptocurrency quotes for specified symbols
@@ -149,7 +148,7 @@ func (j *CryptoQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) e
 		}
 	}
 	
-	// Publish to Redis (both PubSub and Stream for backward compatibility)
+	// Publish to Redis Stream
 	redisClient := client.NewRedisClient("")
 	defer redisClient.Close()
 	
@@ -158,14 +157,7 @@ func (j *CryptoQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) e
 	
 	quoteData := client.StockQuoteToQuoteData(quote)
 	
-	// 1. Publish to Redis PubSub channel
-	if err := redisClient.PublishCryptoQuote(ctx, quoteData); err != nil {
-		log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-	} else {
-		log.Printf("Published crypto quote for %s to Redis PubSub channel", symbol)
-	}
-	
-	// 2. Publish to Redis Stream
+	// Publish to Redis Stream
 	if err := redisClient.PublishToCryptoStream(ctx, quoteData); err != nil {
 		log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 	} else {
@@ -233,20 +225,13 @@ func (j *CryptoQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) err
 					cryptoQuote.Volume = int64(volume)
 				}
 				
-				// Publish to Redis (both PubSub and Stream)
+				// Publish to Redis Stream
 				redisClient := client.NewRedisClient("")
 				defer redisClient.Close()
 				
 				quoteData := client.StockQuoteToQuoteData(cryptoQuote)
 				
-				// 1. Publish to Redis PubSub channel
-				if err := redisClient.PublishCryptoQuote(ctx, quoteData); err != nil {
-					log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-				} else {
-					log.Printf("Published crypto quote for %s to Redis PubSub channel", symbol)
-				}
-				
-				// 2. Publish to Redis Stream
+				// Publish to Redis Stream
 				if err := redisClient.PublishToCryptoStream(ctx, quoteData); err != nil {
 					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 				} else {

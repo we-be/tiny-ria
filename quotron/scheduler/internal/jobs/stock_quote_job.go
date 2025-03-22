@@ -186,20 +186,13 @@ func (j *StockQuoteJob) fetchQuoteFromAPI(ctx context.Context, symbol string) er
 		}
 	}
 	
-	// Publish to Redis (both PubSub and Stream for backward compatibility)
+	// Publish to Redis Stream
 	redisClient := client.NewRedisClient("")
 	defer redisClient.Close()
-	
+
 	quoteData := client.StockQuoteToQuoteData(quote)
 	
-	// 1. Publish to Redis PubSub channel
-	if err := redisClient.PublishStockQuote(ctx, quoteData); err != nil {
-		log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-	} else {
-		log.Printf("Published stock quote for %s to Redis PubSub channel", symbol)
-	}
-	
-	// 2. Publish to Redis Stream
+	// Publish to Redis Stream
 	if err := redisClient.PublishToStockStream(ctx, quoteData); err != nil {
 		log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 	} else {
@@ -275,20 +268,13 @@ func (j *StockQuoteJob) fetchQuote(ctx context.Context, symbol string) error {
 					stockQuote.Exchange = client.MapExchangeToEnum(exchange)
 				}
 				
-				// Publish to Redis (both PubSub and Stream)
+				// Publish to Redis Stream
 				redisClient := client.NewRedisClient("")
 				defer redisClient.Close()
 				
 				quoteData := client.StockQuoteToQuoteData(stockQuote)
 				
-				// 1. Publish to Redis PubSub channel
-				if err := redisClient.PublishStockQuote(ctx, quoteData); err != nil {
-					log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-				} else {
-					log.Printf("Published stock quote for %s to Redis PubSub channel", symbol)
-				}
-				
-				// 2. Publish to Redis Stream
+				// Publish to Redis Stream
 				if err := redisClient.PublishToStockStream(ctx, quoteData); err != nil {
 					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 				} else {
@@ -364,20 +350,13 @@ func (j *StockQuoteJob) fetchQuoteYahoo(ctx context.Context, symbol string) erro
 					stockQuote.Exchange = client.MapExchangeToEnum(exchange)
 				}
 				
-				// Publish to Redis (both PubSub and Stream)
+				// Publish to Redis Stream only
 				redisClient := client.NewRedisClient("")
 				defer redisClient.Close()
 				
 				quoteData := client.StockQuoteToQuoteData(stockQuote)
 				
-				// 1. Publish to Redis PubSub channel
-				if err := redisClient.PublishStockQuote(ctx, quoteData); err != nil {
-					log.Printf("Warning: failed to publish to Redis PubSub: %v", err)
-				} else {
-					log.Printf("Published stock quote for %s to Redis PubSub channel", symbol)
-				}
-				
-				// 2. Publish to Redis Stream
+				// Publish to Redis Stream
 				if err := redisClient.PublishToStockStream(ctx, quoteData); err != nil {
 					log.Printf("Warning: failed to publish to Redis Stream: %v", err)
 				} else {

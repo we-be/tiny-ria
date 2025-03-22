@@ -10,9 +10,6 @@ import (
 )
 
 const (
-	StockQuoteChannel    = "quotron:stocks"
-	CryptoQuoteChannel   = "quotron:crypto"
-	MarketIndexChannel   = "quotron:indices"
 	StockQuoteStream     = "quotron:stocks:stream"
 	CryptoQuoteStream    = "quotron:crypto:stream"
 	MarketIndexStream    = "quotron:indices:stream"
@@ -56,23 +53,6 @@ func (r *RedisClient) Close() error {
 	return r.client.Close()
 }
 
-// PublishStockQuote publishes a stock quote to Redis PubSub
-func (r *RedisClient) PublishStockQuote(ctx context.Context, quote *QuoteData) error {
-	// Convert to JSON
-	data, err := json.Marshal(quote)
-	if err != nil {
-		return fmt.Errorf("failed to marshal stock quote: %w", err)
-	}
-	
-	// Publish to Redis PubSub
-	err = r.client.Publish(ctx, StockQuoteChannel, string(data)).Err()
-	if err != nil {
-		return fmt.Errorf("failed to publish to Redis: %w", err)
-	}
-	
-	return nil
-}
-
 // PublishToStockStream publishes a stock quote to Redis Stream
 func (r *RedisClient) PublishToStockStream(ctx context.Context, quote *QuoteData) error {
 	// Convert to JSON
@@ -100,33 +80,6 @@ func (r *RedisClient) PublishToStockStream(ctx context.Context, quote *QuoteData
 	return nil
 }
 
-// GetSubscriberCount returns the number of subscribers for a channel
-func (r *RedisClient) GetSubscriberCount(ctx context.Context, channel string) (int64, error) {
-	result, err := r.client.PubSubNumSub(ctx, channel).Result()
-	if err != nil {
-		return 0, err
-	}
-	
-	return result[channel], nil
-}
-
-// PublishCryptoQuote publishes a cryptocurrency quote to Redis PubSub
-func (r *RedisClient) PublishCryptoQuote(ctx context.Context, quote *QuoteData) error {
-	// Convert to JSON
-	data, err := json.Marshal(quote)
-	if err != nil {
-		return fmt.Errorf("failed to marshal crypto quote: %w", err)
-	}
-	
-	// Publish to Redis PubSub
-	err = r.client.Publish(ctx, CryptoQuoteChannel, string(data)).Err()
-	if err != nil {
-		return fmt.Errorf("failed to publish to Redis PubSub: %w", err)
-	}
-	
-	return nil
-}
-
 // PublishToCryptoStream publishes a cryptocurrency quote to Redis Stream
 func (r *RedisClient) PublishToCryptoStream(ctx context.Context, quote *QuoteData) error {
 	// Convert to JSON
@@ -149,23 +102,6 @@ func (r *RedisClient) PublishToCryptoStream(ctx context.Context, quote *QuoteDat
 	
 	if err != nil {
 		return fmt.Errorf("failed to add to Redis stream: %w", err)
-	}
-	
-	return nil
-}
-
-// PublishMarketIndex publishes a market index to Redis PubSub
-func (r *RedisClient) PublishMarketIndex(ctx context.Context, marketData *MarketData) error {
-	// Convert to JSON
-	data, err := json.Marshal(marketData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal market index data: %w", err)
-	}
-	
-	// Publish to Redis PubSub
-	err = r.client.Publish(ctx, MarketIndexChannel, string(data)).Err()
-	if err != nil {
-		return fmt.Errorf("failed to publish to Redis PubSub: %w", err)
 	}
 	
 	return nil

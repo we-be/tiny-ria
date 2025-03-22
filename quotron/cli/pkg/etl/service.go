@@ -17,15 +17,12 @@ import (
 )
 
 const (
-	// Use both stream and pub/sub for backward compatibility
-	StockChannel    = "quotron:stocks"     // Legacy pub/sub channel
-	StockStream     = "quotron:stocks:stream"  // New stream name
-	CryptoChannel   = "quotron:crypto"     // Legacy pub/sub channel for crypto
-	CryptoStream    = "quotron:crypto:stream"  // New stream name for crypto
-	IndexChannel    = "quotron:indices"    // Legacy pub/sub channel for market indices
-	IndexStream     = "quotron:indices:stream" // New stream name for market indices
-	ConsumerGroup   = "quotron:etl"       // Consumer group name
-	StreamMaxLen    = 1000               // Maximum number of messages to keep in the stream
+	// Redis streams configuration
+	StockStream     = "quotron:stocks:stream"  // Stock quotes stream
+	CryptoStream    = "quotron:crypto:stream"  // Crypto quotes stream
+	IndexStream     = "quotron:indices:stream" // Market indices stream
+	ConsumerGroup   = "quotron:etl"           // Consumer group name
+	StreamMaxLen    = 1000                   // Maximum number of messages to keep in the stream
 )
 
 // StockQuote represents a stock quote from various sources
@@ -66,18 +63,14 @@ type Service struct {
 	running     bool
 	cancel      context.CancelFunc
 	waitGroup   sync.WaitGroup
-	
-	// Stream listener - for backward compatibility
-	pubsubListener bool
 }
 
 // NewService creates a new ETL service
 func NewService(redisAddr, dbConnStr string, numWorkers int) *Service {
 	return &Service{
-		redisAddr:      redisAddr,
-		dbConnStr:      dbConnStr,
-		numWorkers:     numWorkers,
-		pubsubListener: true, // Enable legacy pubsub listener by default
+		redisAddr:  redisAddr,
+		dbConnStr:  dbConnStr,
+		numWorkers: numWorkers,
 	}
 }
 
@@ -134,20 +127,11 @@ func (s *Service) Start() error {
 	// Initialize Redis Stream and consumer group
 	err = s.initializeStream(ctx)
 	if err != nil {
-		log.Printf("Warning: Could not initialize Redis stream: %v - service will still work with PubSub", err)
+		return fmt.Errorf("failed to initialize Redis stream: %w", err)
 	}
 	
 	// Start workers
 	s.running = true
-	
-	// Start pubsub listener if enabled (for backward compatibility)
-	if s.pubsubListener {
-		s.waitGroup.Add(1)
-		go func() {
-			defer s.waitGroup.Done()
-			s.runPubsubListener(ctx)
-		}()
-	}
 	
 	// Start stream workers
 	for i := 0; i < s.numWorkers; i++ {
@@ -262,109 +246,6 @@ func (s *Service) IsRunning() bool {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	return s.running
-}
-
-// runPubsubListener listens for messages on the Redis pub/sub channels and forwards them to the streams
-// This provides backward compatibility with existing publishers
-func (s *Service) runPubsubListener(ctx context.Context) {
-	log.Printf("PubSub Listener: Starting")
-	
-	// Create a new Redis client for the listener
-	client := redis.NewClient(&redis.Options{
-		Addr: s.redisAddr,
-	})
-	defer client.Close()
-	
-	// Subscribe to each channel separately to ensure we get proper confirmation for each
-	log.Printf("PubSub Listener: Attempting to subscribe to channels %s, %s, and %s", StockChannel, CryptoChannel, IndexChannel)
-	
-	// Subscribe to stock channel
-	stockPubsub := client.Subscribe(ctx, StockChannel)
-	defer stockPubsub.Close()
-	stockSub, err := stockPubsub.Receive(ctx)
-	if err != nil {
-		log.Printf("PubSub Listener: Failed to subscribe to stock channel: %v", err)
-	} else {
-		log.Printf("PubSub Listener: Subscribed to channel %s (response: %T)", StockChannel, stockSub)
-	}
-	
-	// Subscribe to crypto channel
-	cryptoPubsub := client.Subscribe(ctx, CryptoChannel)
-	defer cryptoPubsub.Close()
-	cryptoSub, err := cryptoPubsub.Receive(ctx)
-	if err != nil {
-		log.Printf("PubSub Listener: Failed to subscribe to crypto channel: %v", err)
-	} else {
-		log.Printf("PubSub Listener: Subscribed to channel %s (response: %T)", CryptoChannel, cryptoSub)
-	}
-	
-	// Subscribe to index channel
-	indexPubsub := client.Subscribe(ctx, IndexChannel)
-	defer indexPubsub.Close()
-	indexSub, err := indexPubsub.Receive(ctx)
-	if err != nil {
-		log.Printf("PubSub Listener: Failed to subscribe to index channel: %v", err)
-	} else {
-		log.Printf("PubSub Listener: Subscribed to channel %s (response: %T)", IndexChannel, indexSub)
-	}
-	
-	// Now create a single subscription for actually processing messages from all channels
-	pubsub := client.Subscribe(ctx, StockChannel, CryptoChannel, IndexChannel)
-	defer pubsub.Close()
-	
-	// Wait for confirmation of subscription
-	subscription, err := pubsub.Receive(ctx)
-	if err != nil {
-		log.Printf("PubSub Listener: Failed to subscribe to combined channels: %v", err)
-		return
-	}
-	log.Printf("PubSub Listener: Combined subscription established (response: %T)", subscription)
-	
-	// Process messages
-	ch := pubsub.Channel()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("PubSub Listener: Shutting down")
-			return
-			
-		case msg, ok := <-ch:
-			if !ok {
-				log.Printf("PubSub Listener: Channel closed")
-				return
-			}
-			
-			// Determine target stream based on source channel
-			var targetStream string
-			switch msg.Channel {
-			case StockChannel:
-				targetStream = StockStream
-			case CryptoChannel:
-				targetStream = CryptoStream
-			case IndexChannel:
-				targetStream = IndexStream
-			default:
-				log.Printf("PubSub Listener: Unknown channel %s, skipping message", msg.Channel)
-				continue
-			}
-			
-			// Forward message to the appropriate stream
-			_, err := client.XAdd(ctx, &redis.XAddArgs{
-				Stream: targetStream,
-				ID:     "*", // Auto-generate ID
-				Values: map[string]interface{}{
-					"data": msg.Payload,
-				},
-				MaxLen: StreamMaxLen,
-			}).Result()
-			
-			if err != nil {
-				log.Printf("PubSub Listener: Failed to add message to stream %s: %v", targetStream, err)
-			} else {
-				log.Printf("PubSub Listener: Forwarded message from %s to stream %s", msg.Channel, targetStream)
-			}
-		}
-	}
 }
 
 // runStreamWorker processes messages from Redis Stream using consumer groups
