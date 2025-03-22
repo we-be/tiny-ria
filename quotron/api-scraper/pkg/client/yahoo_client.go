@@ -37,6 +37,11 @@ func (c *YahooFinanceClient) GetStockQuote(ctx context.Context, symbol string) (
 	errCh := make(chan error, 1)
 
 	go func() {
+		// Intentionally cause an error for testing the failing badge
+		errCh <- errors.New("intentional error for testing badge failure status")
+		return
+
+		// This code will never be reached
 		// Get quote data from Yahoo Finance
 		q, err := quote.Get(symbol)
 		if err != nil {
