@@ -221,6 +221,10 @@ func handleStartCommand(ctx context.Context, args []string) {
 		fmt.Println("Started in monitor mode. Press Ctrl+C to stop.")
 		// Keep running until context is cancelled
 		<-ctx.Done()
+	} else {
+		// In regular mode, do not automatically clean up processes
+		// just exit and let the services continue running
+		fmt.Println("Services started successfully. Use 'quotron status' to check status.")
 	}
 }
 

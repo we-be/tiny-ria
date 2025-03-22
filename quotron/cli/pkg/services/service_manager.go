@@ -46,17 +46,8 @@ func NewServiceManager(config *Config) *ServiceManager {
 
 // StartServices starts the specified services
 func (sm *ServiceManager) StartServices(ctx context.Context, services ServiceList, monitor bool) error {
-	// Create cleanup function if not in monitor mode
-	if !monitor {
-		defer func() {
-			for _, pid := range pidList {
-				// Only kill processes we started in this session
-				if pid > 0 {
-					syscall.Kill(pid, syscall.SIGTERM)
-				}
-			}
-		}()
-	}
+	// The defer cleanup was causing services to stop after starting
+	// We should only clean up on abnormal exit, not in normal operation
 
 	// Build start order based on dependencies
 	if services.APIService && !services.YFinanceProxy {
@@ -702,6 +693,11 @@ var pidList []int
 // addPid adds a PID to the global PID list
 func addPid(pid int) {
 	pidList = append(pidList, pid)
+}
+
+// clearPids clears the global PID list
+func clearPids() {
+	pidList = []int{}
 }
 
 // isPidRunning checks if a process is running
