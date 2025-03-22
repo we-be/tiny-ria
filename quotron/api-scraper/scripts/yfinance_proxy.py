@@ -255,6 +255,9 @@ class StockDataProvider:
         Returns:
             Stock quote dictionary
         """
+        # Intentionally raise an exception to test the API scraper badge failure
+        raise RuntimeError("Intentionally breaking the API scraper to test badge failure status")
+        
         def transform_quote(info, symbol):
             return {
                 "symbol": symbol,
