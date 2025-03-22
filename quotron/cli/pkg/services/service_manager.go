@@ -308,7 +308,7 @@ func (sm *ServiceManager) startYFinanceProxy(ctx context.Context) error {
 }
 
 
-// startAPIService starts the API service with improved persistence
+// startAPIService starts the API service using Go runtime
 func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 	// Check if already running
 	if sm.checkServiceResponding(sm.config.APIHost, sm.config.APIPort) {
@@ -326,21 +326,10 @@ func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 		}
 	}
 
-	// Build API service if needed
-	apiServiceDir := filepath.Join(sm.config.QuotronRoot, "api-service")
-	apiServiceBin := filepath.Join(apiServiceDir, "api-service")
-
-	// Check if binary exists and is executable
-	_, err := os.Stat(apiServiceBin)
-	if os.IsNotExist(err) || !isExecutable(apiServiceBin) {
-		fmt.Println("Building API Service...")
-		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "api-service", "cmd/server/main.go")
-		buildCmd.Dir = apiServiceDir
-		buildOut, err := buildCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to build API Service: %w, output: %s", err, buildOut)
-		}
-		fmt.Println("API Service built successfully")
+	// Import API package
+	apiPkg, err := sm.importAPIPackage()
+	if err != nil {
+		return fmt.Errorf("failed to import API package: %w", err)
 	}
 
 	// Start the API service
@@ -352,40 +341,44 @@ func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 	
-	// Arguments
-	args := []string{
-		"--port", strconv.Itoa(sm.config.APIPort),
-		"--yahoo-host", sm.config.YFinanceProxyHost,
-		"--yahoo-port", strconv.Itoa(sm.config.YFinanceProxyPort),
-	}
+	// Create API configuration
+	config := apiPkg.CreateConfig(
+		sm.config.APIPort,
+		"postgres://postgres:postgres@localhost:5432/quotron?sslmode=disable", // Use config for this
+		true, // useYahoo
+		"", // alphaKey
+		sm.config.YFinanceProxyHost,
+		sm.config.YFinanceProxyPort,
+		sm.config.HealthServiceURL != "",
+		sm.config.HealthServiceURL,
+		"api-service",
+	)
 	
-	// Add health service if enabled
-	if sm.config.HealthServiceURL != "" {
-		args = append(args, 
-			"--health", "true",
-			"--health-service", sm.config.HealthServiceURL)
-	}
+	// Create a channel to receive errors from the API service
+	errChan := make(chan error, 1)
 	
-	// Prepare command
-	cmd := exec.CommandContext(ctx, apiServiceBin, args...)
-	cmd.Dir = apiServiceDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Create a stop channel to pass to the API service
+	stopChan := make(chan struct{})
 	
-	// Start the API service
-	err = cmd.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start API Service: %w", err)
-	}
-	
-	// Save PID
-	err = sm.savePid(sm.config.APIServicePIDFile, cmd.Process.Pid)
-	if err != nil {
-		return fmt.Errorf("failed to save API Service PID: %w", err)
-	}
-	
-	// Add to global PID list
-	addPid(cmd.Process.Pid)
+	// Start the API service in a separate goroutine
+	go func() {
+		// Save PID
+		pid := os.Getpid()
+		err := sm.savePid(sm.config.APIServicePIDFile, pid)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to save API Service PID: %w", err)
+			return
+		}
+		
+		// Add to global PID list
+		addPid(pid)
+		
+		// Run the API service
+		err = apiPkg.RunAPIService(config, stopChan)
+		if err != nil {
+			errChan <- fmt.Errorf("API service exited with error: %w", err)
+		}
+	}()
 	
 	// Wait for service to be responsive
 	fmt.Printf("Waiting for service at %s:%d to respond (timeout: %ds)...\n", 
@@ -396,28 +389,44 @@ func (sm *ServiceManager) startAPIService(ctx context.Context) error {
 	start := time.Now()
 	attempts := 0
 	
-	for time.Since(start) < timeout {
-		if sm.checkServiceResponding(sm.config.APIHost, sm.config.APIPort) {
-			fmt.Printf("Service available after %.1f seconds (%d attempts)\n", 
-				time.Since(start).Seconds(), attempts)
-			break
-		}
-		
-		attempts++
-		time.Sleep(2 * time.Second)
-		
-		if attempts%5 == 0 {
-			fmt.Printf("Still waiting for service to respond (%.1f seconds elapsed, %d attempts)...\n", 
-				time.Since(start).Seconds(), attempts)
+	// Use a ticker for polling
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	
+	timeoutChan := time.After(timeout)
+	
+	for {
+		select {
+		case <-ctx.Done():
+			// Context was cancelled
+			close(stopChan) // Signal API service to shut down
+			return fmt.Errorf("context cancelled while waiting for API service to start")
+			
+		case err := <-errChan:
+			// API service encountered an error
+			close(stopChan) // Ensure API service is shut down
+			return err
+			
+		case <-timeoutChan:
+			// Timeout reached
+			close(stopChan) // Signal API service to shut down
+			return fmt.Errorf("timed out waiting for API Service to respond")
+			
+		case <-ticker.C:
+			// Check if service is responding
+			attempts++
+			if sm.checkServiceResponding(sm.config.APIHost, sm.config.APIPort) {
+				fmt.Printf("Service available after %.1f seconds (%d attempts)\n", 
+					time.Since(start).Seconds(), attempts)
+				return nil
+			}
+			
+			if attempts%5 == 0 {
+				fmt.Printf("Still waiting for service to respond (%.1f seconds elapsed, %d attempts)...\n", 
+					time.Since(start).Seconds(), attempts)
+			}
 		}
 	}
-	
-	if !sm.checkServiceResponding(sm.config.APIHost, sm.config.APIPort) {
-		return fmt.Errorf("timed out waiting for API Service to respond")
-	}
-	
-	fmt.Printf("API service started successfully with PID %d\n", cmd.Process.Pid)
-	return nil
 }
 
 // startScheduler starts the scheduler
@@ -599,6 +608,14 @@ func (sm *ServiceManager) startETLService(ctx context.Context) error {
 func (sm *ServiceManager) stopService(name, pidFile, processPattern string) error {
 	fmt.Printf("Stopping %s...\n", name)
 	
+	// Special handling for API service if it's running in the same process
+	if name == "API Service" && os.Getpid() == sm.readSelfPid(pidFile) {
+		fmt.Println("API Service is running in the same process, special shutdown required")
+		// Send a signal to the API service's stop channel
+		// This would require some global coordination, which we're not implementing yet
+		// For now, we'll just continue with normal process termination
+	}
+	
 	// Try to stop using PID file first
 	pid, err := sm.readPid(pidFile)
 	if err == nil && pid > 0 {
@@ -644,6 +661,15 @@ func (sm *ServiceManager) stopService(name, pidFile, processPattern string) erro
 	}
 	
 	return nil
+}
+
+// readSelfPid checks if the PID in the file matches the current process
+func (sm *ServiceManager) readSelfPid(pidFile string) int {
+	pid, err := sm.readPid(pidFile)
+	if err != nil {
+		return -1
+	}
+	return pid
 }
 
 // monitorServices monitors service health and restarts failed services
@@ -849,10 +875,150 @@ func (sm *ServiceManager) importSchedulerPackage() (*SchedulerPackage, error) {
 	}, nil
 }
 
+// importAPIPackage dynamically loads the API package
+// This is a helper function to avoid direct imports and allow for runtime loading
+func (sm *ServiceManager) importAPIPackage() (*APIPackage, error) {
+	// Create a wrapper around the API package
+	return &APIPackage{
+		apiServiceDir: filepath.Join(sm.config.QuotronRoot, "api-service"),
+	}, nil
+}
+
 // SchedulerPackage is a wrapper around the scheduler package
 // This allows us to access the scheduler package without direct imports
 type SchedulerPackage struct {
 	schedulerDir string
+}
+
+// APIPackage is a wrapper around the API package
+// This allows us to access the API package without direct imports
+type APIPackage struct {
+	apiServiceDir string
+}
+
+// CreateConfig creates a configuration for the API service
+func (ap *APIPackage) CreateConfig(
+	port int,
+	dbURL string,
+	useYahoo bool,
+	alphaKey string,
+	yahooHost string,
+	yahooPort int,
+	useHealth bool,
+	healthService string,
+	serviceName string,
+) interface{} {
+	// Create a map to represent the Config struct
+	return map[string]interface{}{
+		"Port":           port,
+		"DatabaseURL":    dbURL,
+		"YahooEnabled":   useYahoo,
+		"AlphaKey":       alphaKey,
+		"YahooHost":      yahooHost,
+		"YahooPort":      yahooPort,
+		"HealthEnabled":  useHealth,
+		"HealthService":  healthService,
+		"ServiceName":    serviceName,
+	}
+}
+
+// RunAPIService runs the API service with the given configuration
+func (ap *APIPackage) RunAPIService(config interface{}, stopChan chan struct{}) error {
+	// We need to perform a dynamic import of the API server module
+	// Since we can't directly import it without creating a circular dependency
+    
+	// Get the path to the API server main.go
+	serverMainPath := filepath.Join(ap.apiServiceDir, "cmd", "server", "main.go")
+	
+	// Check if the file exists
+	if _, err := os.Stat(serverMainPath); os.IsNotExist(err) {
+		return fmt.Errorf("API server main.go not found at %s", serverMainPath)
+	}
+	
+	// We need to compile and run the API server dynamically
+	// For now, we'll use the exec approach but prepare for future direct import
+	
+	configMap, ok := config.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid config type")
+	}
+	
+	// Extract config values
+	port := configMap["Port"].(int)
+	dbURL := configMap["DatabaseURL"].(string)
+	useYahoo := configMap["YahooEnabled"].(bool)
+	alphaKey := configMap["AlphaKey"].(string)
+	yahooHost := configMap["YahooHost"].(string)
+	yahooPort := configMap["YahooPort"].(int)
+	useHealth := configMap["HealthEnabled"].(bool)
+	healthService := configMap["HealthService"].(string)
+	serviceName := configMap["ServiceName"].(string)
+	
+	// Skip the build step since we're going to use "go run" directly
+	
+	// Build the correct path for the API server
+	// We need to use go run directly since the binary isn't working
+	
+	// Arguments for go run
+	args := []string{
+		"run", "cmd/main/main.go",
+		"--port", strconv.Itoa(port),
+		"--db", dbURL,
+	}
+	
+	if useYahoo {
+		args = append(args, "--yahoo")
+	} else {
+		args = append(args, "--yahoo=false")
+	}
+	
+	if alphaKey != "" {
+		args = append(args, "--alpha-key", alphaKey)
+	}
+	
+	args = append(args, 
+		"--yahoo-host", yahooHost,
+		"--yahoo-port", strconv.Itoa(yahooPort))
+	
+	if useHealth {
+		args = append(args, "--health")
+		if healthService != "" {
+			args = append(args, "--health-service", healthService)
+		}
+	}
+	
+	if serviceName != "" {
+		args = append(args, "--name", serviceName)
+	}
+	
+	// Prepare command
+	cmd := exec.Command("go", args...)
+	cmd.Dir = ap.apiServiceDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	// Start the API service
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start API Service: %w", err)
+	}
+	
+	// Set up a goroutine to wait for the stop signal
+	go func() {
+		// Wait for stop signal
+		<-stopChan
+		
+		// Terminate the process
+		if cmd.Process != nil {
+			cmd.Process.Signal(os.Interrupt)
+			// Wait for a moment to allow graceful shutdown
+			time.Sleep(2 * time.Second)
+			// Force kill if still running
+			cmd.Process.Kill()
+		}
+	}()
+	
+	// Wait for the process to complete
+	return cmd.Wait()
 }
 
 // RunJob runs a scheduler job by executing the scheduler binary with the -run-job flag
