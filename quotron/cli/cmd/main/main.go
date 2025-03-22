@@ -289,7 +289,6 @@ func handleStatusCommand() {
 	fmt.Printf("YFinance Proxy: %s\n", formatStatus(status.YFinanceProxy))
 	fmt.Printf("API Service: %s\n", formatStatus(status.APIService))
 	fmt.Printf("Scheduler: %s\n", formatStatus(status.Scheduler))
-	fmt.Println("Dashboard: Integrated into API service")
 	fmt.Printf("ETL Service: %s\n", formatStatus(status.ETLService))
 }
 
