@@ -46,17 +46,8 @@ func NewServiceManager(config *Config) *ServiceManager {
 
 // StartServices starts the specified services
 func (sm *ServiceManager) StartServices(ctx context.Context, services ServiceList, monitor bool) error {
-	// Create cleanup function if not in monitor mode
-	if !monitor {
-		defer func() {
-			for _, pid := range pidList {
-				// Only kill processes we started in this session
-				if pid > 0 {
-					syscall.Kill(pid, syscall.SIGTERM)
-				}
-			}
-		}()
-	}
+	// The defer cleanup was causing services to stop after starting
+	// We should only clean up on abnormal exit, not in normal operation
 
 	// Build start order based on dependencies
 	if services.APIService && !services.YFinanceProxy {
@@ -199,7 +190,17 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 
 		
 	// Check ETL Service
-	status.ETLService = sm.checkServiceRunning(sm.config.ETLServicePIDFile, "etl.*-start", "", 0)
+	// First check PID file
+	etlPid, err := sm.readPid(sm.config.ETLServicePIDFile)
+	if err == nil && etlPid > 0 && isPidRunning(etlPid) {
+		status.ETLService = true
+	} else {
+		// Then check for any ETL processes running
+		cmd := exec.Command("pgrep", "-f", "etl.*-start")
+		if cmd.Run() == nil {
+			status.ETLService = true
+		}
+	}
 
 	return status, nil
 }
@@ -500,40 +501,92 @@ func (sm *ServiceManager) startETLService(ctx context.Context) error {
 		return nil
 	}
 
-	// Path to the ETL directory
-	etlDir := filepath.Join(sm.config.QuotronRoot, "cli")
+	// Path to the ETL directory and executable
+	cliDir := filepath.Join(sm.config.QuotronRoot, "cli")
+	etlDir := filepath.Join(cliDir, "cmd", "etl")
+	etlExec := filepath.Join(etlDir, "etl")
 	
-	// Check if ETL service start script exists
-	etlScript := filepath.Join(etlDir, "start_etl.sh")
-	if _, err := os.Stat(etlScript); os.IsNotExist(err) {
-		return fmt.Errorf("ETL service script not found at %s", etlScript)
+	// Check if ETL executable exists, build if needed
+	if _, err := os.Stat(etlExec); os.IsNotExist(err) || !isExecutable(etlExec) {
+		fmt.Println("ETL executable not found or not executable. Building ETL...")
+		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "etl", "main.go")
+		buildCmd.Dir = etlDir
+		buildOut, err := buildCmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to build ETL: %w, output: %s", err, buildOut)
+		}
+		fmt.Println("ETL built successfully")
 	}
 	
-	// Make sure the script is executable
-	os.Chmod(etlScript, 0755)
+	// Get the platform-appropriate temp directory for logs
+	logFile := sm.config.ETLServiceLogFile
 	
-	// Start the ETL service
+	// Start the ETL service with appropriate parameters
 	fmt.Println("Starting ETL service...")
-	cmd := exec.CommandContext(ctx, etlScript)
-	cmd.Dir = etlDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	
+	// Create command with all required arguments
+	cmd := exec.CommandContext(ctx, etlExec,
+		"-start",
+		"-redis="+sm.config.RedisHost+":"+strconv.Itoa(sm.config.RedisPort),
+		"-dbhost="+sm.config.DBHost,
+		"-dbport="+strconv.Itoa(sm.config.DBPort),
+		"-dbname="+sm.config.DBName,
+		"-dbuser="+sm.config.DBUser,
+		"-dbpass="+sm.config.DBPassword,
+		"-workers=2",
+	)
+	
+	// Set up log redirection
+	logFd, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open ETL log file: %w", err)
+	}
+	
+	cmd.Stdout = logFd
+	cmd.Stderr = logFd
+	cmd.Dir = etlDir
+	
+	// Use nohup-like functionality to keep the process running
+	// Create a process group independent of this process
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+		Pgid:    0,
+	}
+	
+	// Start the ETL process
 	err = cmd.Start()
 	if err != nil {
+		logFd.Close()
 		return fmt.Errorf("failed to start ETL service: %w", err)
 	}
 	
-	// Save PID
+	// Close the log file in the parent process - the child will keep it open
+	logFd.Close()
+	
+	// Save PID to both the standard location and the legacy location
 	err = sm.savePid(sm.config.ETLServicePIDFile, cmd.Process.Pid)
 	if err != nil {
 		return fmt.Errorf("failed to save ETL service PID: %w", err)
 	}
 	
+	// Also save PID to the legacy location for compatibility
+	legacyPidPath := filepath.Join(cliDir, ".etl_service.pid")
+	if err := os.WriteFile(legacyPidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
+		fmt.Printf("Warning: Failed to write legacy PID file: %v\n", err)
+	}
+	
 	// Add to global PID list
 	addPid(cmd.Process.Pid)
 	
-	fmt.Printf("ETL service started successfully with PID %d\n", cmd.Process.Pid)
+	// Wait a moment to make sure it started properly
+	time.Sleep(2 * time.Second)
+	if isPidRunning(cmd.Process.Pid) {
+		fmt.Printf("ETL service started successfully with PID %d\n", cmd.Process.Pid)
+		fmt.Printf("Log file: %s\n", logFile)
+	} else {
+		return fmt.Errorf("ETL service failed to start. Check log at %s", logFile)
+	}
+	
 	return nil
 }
 
@@ -640,6 +693,11 @@ var pidList []int
 // addPid adds a PID to the global PID list
 func addPid(pid int) {
 	pidList = append(pidList, pid)
+}
+
+// clearPids clears the global PID list
+func clearPids() {
+	pidList = []int{}
 }
 
 // isPidRunning checks if a process is running

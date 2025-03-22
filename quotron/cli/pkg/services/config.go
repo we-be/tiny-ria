@@ -61,6 +61,24 @@ type Config struct {
 	AlphaVantageAPIKey string `json:"alpha_vantage_api_key"`
 }
 
+// GetQuotronTempDir returns the platform-appropriate temp directory for Quotron files
+func GetQuotronTempDir() string {
+	// Get the base temp directory for the current platform
+	tempDir := os.TempDir()
+	
+	// Create a Quotron-specific subdirectory to avoid conflicts
+	quotronTempDir := filepath.Join(tempDir, "quotron")
+	
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(quotronTempDir, 0755); err != nil {
+		fmt.Printf("Warning: Failed to create Quotron temp directory: %v\n", err)
+		// Fall back to using the system temp dir directly
+		return tempDir
+	}
+	
+	return quotronTempDir
+}
+
 // DefaultConfig creates a default configuration
 func DefaultConfig() *Config {
 	// Get the project root directory by finding the "quotron" directory
@@ -79,6 +97,9 @@ func DefaultConfig() *Config {
 	
 	// Try to find the quotron root by walking up the directory tree
 	quotronRoot := findQuotronRoot(cwd)
+	
+	// Get the platform-specific temp directory
+	quotronTempDir := GetQuotronTempDir()
 	
 	// Create default config
 	config := &Config{
@@ -119,10 +140,10 @@ func DefaultConfig() *Config {
 		ETLDir:              filepath.Join(quotronRoot, "etl"),
 
 		// Log file paths
-		YFinanceLogFile:   "/tmp/yfinance_proxy.log",
-		SchedulerLogFile:  "/tmp/scheduler.log",
-		APIServiceLogFile: "/tmp/api_service.log",
-		ETLServiceLogFile: "/tmp/etl_service.log",
+		YFinanceLogFile:   filepath.Join(quotronTempDir, "yfinance_proxy.log"),
+		SchedulerLogFile:  filepath.Join(quotronTempDir, "scheduler.log"),
+		APIServiceLogFile: filepath.Join(quotronTempDir, "api_service.log"),
+		ETLServiceLogFile: filepath.Join(quotronTempDir, "etl_service.log"),
 
 		// PID files
 		SchedulerPIDFile:     filepath.Join(quotronRoot, "scheduler", ".scheduler.pid"),
