@@ -33,6 +33,12 @@
       "parameters": {
         "symbols": "BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD"
       }
+    },
+    "stream_maintenance": {
+      "cron": "0 0 * * *",
+      "enabled": true,
+      "description": "Maintain Redis streams to prevent unbounded growth",
+      "parameters": {}
     }
   }
 }

@@ -101,6 +101,12 @@ func (s *Scheduler) RegisterDefaultJobs(cfg *config.Config) error {
 	if err := s.RegisterJob(cryptoQuoteJob); err != nil {
 		return err
 	}
+	
+	// Stream maintenance job
+	streamMaintenanceJob := jobs.NewStreamMaintenanceJob("")  // Use default Redis address
+	if err := s.RegisterJob(streamMaintenanceJob); err != nil {
+		return err
+	}
 
 	return nil
 }
