@@ -1,6 +1,6 @@
-# Quotron Agent
+# RIA - Responsive Investment Assistant
 
-The Quotron Agent is an autonomous financial data monitoring and analysis tool that interacts with the Quotron financial data system. It provides real-time monitoring, portfolio analysis, and data retrieval capabilities.
+RIA is an autonomous financial data monitoring and analysis tool that interacts with the Quotron financial data system. It provides real-time monitoring, portfolio analysis, AI-powered chat, and data visualization capabilities.
 
 ## Features
 
@@ -11,6 +11,7 @@ The Quotron Agent is an autonomous financial data monitoring and analysis tool t
 - **Message Queue Integration**: Publish price alerts to Redis streams for scalable processing
 - **AI Price Analysis**: Automatically analyze price movements with AI to provide insights and context
 - **Extensible Design**: Easily add new capabilities through the agent's modular architecture
+- **Web Chat Interface**: Modern web-based chat UI for intuitive interaction with financial data and visualizations
 
 ## Installation
 
@@ -25,71 +26,40 @@ cd tiny-ria/agent
 
 ## Usage
 
-### Agent CLI
+### Unified CLI
 
-The agent provides a command-line interface with several commands:
+The unified command-line interface provides access to all RIA features:
 
 ```
-Quotron Agent - Autonomous financial data monitoring and analysis
+RIA - Responsive Investment Assistant for financial data monitoring and AI interaction
 
 Usage:
-  quotron-agent [OPTIONS] --command=COMMAND
+  ria [OPTIONS] COMMAND [ARGS...]
 
 Commands:
-  help        Display this help message
-  monitor     Monitor stock prices and alert on significant movements
+  help        Show help information
+  version     Show version information
+  monitor     Monitor price movements for stocks and cryptocurrencies
+  fetch       Fetch current data for financial instruments
   portfolio   Generate a portfolio summary
-  fetch       Fetch data for specified symbols
+  chat        Start the interactive AI assistant in the terminal
+  web         Start the web-based chat interface
+  ai-alerter  Start the AI alerter service
 
-Options:
+Global Options:
   -api-host string
         Host of the Quotron API service (default "localhost")
   -api-port int
         Port of the Quotron API service (default 8080)
-  -command string
-        Command to execute (help, monitor, portfolio) (default "help")
-  -cryptos string
-        Comma-separated list of crypto symbols (default "BTC-USD,ETH-USD")
-  -indices string
-        Comma-separated list of market indices (default "SPY,QQQ,DIA")
-  -interval duration
-        Monitoring interval duration (default 1m0s)
-  -name string
-        Name of the agent (default "FinanceWatcher")
-  -symbols string
-        Comma-separated list of stock symbols (default "AAPL,MSFT,GOOG")
-  -threshold float
-        Alert threshold percentage for price movements (default 2)
-  -enable-queue bool
-        Enable publishing alerts to message queue (default false)
-  -redis-addr string
-        Redis server address for queue (default "localhost:6379")
-```
-
-### AI Assistant
-
-The AI assistant provides an interactive chat interface for financial data:
-
-```
-Usage:
-  quotron-assistant [OPTIONS]
-
-Options:
   -api-key string
-        OpenAI API key (if empty, OPENAI_API_KEY env var is used)
-  -api-host string
-        Host of the Quotron API service (default "localhost")
-  -api-port int
-        Port of the Quotron API service (default 8080)
-  -interactive
-        Run in interactive mode (default true)
-  -model string
-        LLM model to use (default "gpt-3.5-turbo")
-  -query string
-        Single query to run (non-interactive mode)
-  -temperature float
-        LLM temperature (higher = more creative) (default 0.7)
+        API key for OpenAI or Anthropic (if empty, OPENAI_API_KEY or ANTHROPIC_API_KEY env var is used)
+  -redis string
+        Redis server address (default "localhost:6379")
+  -debug
+        Enable debug mode (default false)
 ```
+
+Each command has its own set of options. Use `ria help COMMAND` to see command-specific help.
 
 ## Examples
 
@@ -97,21 +67,21 @@ Options:
 
 ```bash
 # Monitor AAPL, MSFT, and GOOG with 1.5% alert threshold
-./bin/quotron-agent --command=monitor --symbols=AAPL,MSFT,GOOG --threshold=1.5
+./bin/ria monitor --symbols=AAPL,MSFT,GOOG --threshold=1.5
 ```
 
 ### Generate Portfolio Summary
 
 ```bash
 # Generate a summary for a mixed portfolio of stocks and cryptocurrencies
-./bin/quotron-agent --command=portfolio --symbols=AAPL,MSFT,GOOG --cryptos=BTC-USD,ETH-USD
+./bin/ria portfolio --symbols=AAPL,MSFT,GOOG --cryptos=BTC-USD,ETH-USD
 ```
 
 ### Fetch Current Data
 
 ```bash
 # Fetch current data for specific symbols
-./bin/quotron-agent --command=fetch --symbols=AAPL,MSFT --cryptos=BTC-USD --indices=SPY
+./bin/ria fetch --symbols=AAPL,MSFT --cryptos=BTC-USD --indices=SPY
 ```
 
 ### Interactive AI Assistant
@@ -119,17 +89,17 @@ Options:
 ```bash
 # Start the interactive assistant
 export OPENAI_API_KEY=your_openai_api_key
-./bin/quotron-assistant
+./bin/ria chat
 
 # Or provide the API key directly
-./bin/quotron-assistant --api-key=your_openai_api_key
+./bin/ria chat --api-key=your_openai_api_key
 ```
 
 ### Non-Interactive AI Query
 
 ```bash
 # Run a single query in non-interactive mode
-./bin/quotron-assistant --interactive=false --query="What's the current price of AAPL and MSFT?"
+./bin/ria chat --interactive=false --query="What's the current price of AAPL and MSFT?"
 ```
 
 ### AI Price Alerter
@@ -137,17 +107,30 @@ export OPENAI_API_KEY=your_openai_api_key
 ```bash
 # Start the AI alerter to analyze price movements
 export OPENAI_API_KEY=your_openai_api_key
-./bin/quotron-ai-alerter
+./bin/ria ai-alerter
 
 # Or provide the API key directly
-./bin/quotron-ai-alerter --api-key=your_openai_api_key --redis=localhost:6379
+./bin/ria ai-alerter --api-key=your_openai_api_key --redis=localhost:6379
 ```
+
+### Web Chat Interface
+
+```bash
+# Start the web chat interface
+export OPENAI_API_KEY=your_openai_api_key
+./bin/ria web
+
+# Or provide the API key and custom port
+./bin/ria web --api-key=your_openai_api_key --port=8090 --redis=localhost:6379
+```
+
+Then open your browser to http://localhost:8090 to interact with the agent through the chat interface.
 
 ### Enable Queue Publishing in Monitor
 
 ```bash
 # Monitor with queue integration enabled
-./bin/quotron-agent --command=monitor --symbols=AAPL,MSFT,GOOG,BTC-USD,ETH-USD --threshold=1.0 --enable-queue=true
+./bin/ria monitor --symbols=AAPL,MSFT,GOOG,BTC-USD,ETH-USD --threshold=1.0 --enable-queue=true
 ```
 
 ## Prerequisites
@@ -167,17 +150,36 @@ cd ../quotron/cli
 ./quotron start
 ```
 
+## Setting Up a Complete Monitoring System
+
+You can set up a complete RIA environment with these components:
+
+```bash
+# Terminal 1: Start the web interface
+./bin/ria web --api-key=your_openai_api_key
+
+# Terminal 2: Start price monitoring with alerts published to Redis
+./bin/ria monitor --symbols=AAPL,MSFT,GOOG,BTC-USD,ETH-USD --threshold=1.0 --enable-queue
+
+# Terminal 3: Start the AI alerter for detailed analysis of price movements
+./bin/ria ai-alerter --api-key=your_openai_api_key
+```
+
+This creates a comprehensive system where:
+1. The monitor watches for significant price movements
+2. Alerts are published to Redis streams in real-time
+3. The web interface displays financial data and delivers alerts
+4. The AI alerter provides detailed analysis of market movements
+
 ## Development
 
-The agent is built with a modular design that makes it easy to extend:
+RIA is built with a modular design that makes it easy to extend:
 
 - `pkg/agent.go`: Core agent implementation with monitoring and data retrieval capabilities
 - `pkg/assistant.go`: AI assistant implementation for natural language interaction
-- `pkg/llm.go`: LLM client for interacting with OpenAI's API
+- `pkg/llm.go`: LLM client for interacting with OpenAI or Anthropic APIs
 - `pkg/queue.go`: Message queue integration with Redis streams
-- `cmd/main.go`: Command-line interface and command handlers for the agent
-- `cmd/assistant/main.go`: Command-line interface for the AI assistant
-- `cmd/ai-alerter/main.go`: AI-powered price movement analyzer
+- `cmd/unified/main.go`: Unified CLI that brings all functionality together
 
 To add new capabilities, extend the `Agent` struct in `pkg/agent.go` with additional methods.
 
@@ -192,15 +194,21 @@ The agent uses Redis streams for message queuing to enable a scalable, decoupled
 
 ```
 +----------------+           +-------------------+           +----------------+
-| Agent Monitor  |  -------> | Redis Stream     |  -------> | AI Alerter     |
+| RIA Monitor    |  -------> | Redis Stream     |  -------> | RIA Alerter    |
 | (Publisher)    |  alerts   | (Message Queue)  |  consume  | (Consumer)     |
 +----------------+           +-------------------+           +----------------+
-                                                                     |
-                                                                     v
-                                                             +----------------+
-                                                             | OpenAI API     |
-                                                             | (Analysis)     |
-                                                             +----------------+
+        |                            ^                               |
+        |                            |                               v
+        v                            |                        +----------------+
++----------------+                   |                        | AI API         |
+| Quotron API    |                   |                        | (Analysis)     |
++----------------+                   |                        +----------------+
+        ^                            |                               ^
+        |                            |                               |
++----------------+                   |                        +----------------+
+| RIA Web        | ------------------)----------------------> | Web Browser    |
+| (Web Server)   |  alerts & data    |                        | (Client)       |
++----------------+                   |                        +----------------+
 ```
 
 ## License

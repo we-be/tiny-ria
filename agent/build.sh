@@ -5,26 +5,27 @@ set -e
 # Ensure we're in the agent directory
 cd "$(dirname "$0")"
 
-echo "Building quotron tools..."
+echo "Building RIA unified tool..."
 mkdir -p bin
 
 # Create directories if they don't exist
-mkdir -p cmd/assistant
-mkdir -p cmd/ai-alerter
+mkdir -p cmd/unified/static/css
+mkdir -p cmd/unified/static/js
+mkdir -p cmd/unified/static/img
+mkdir -p cmd/unified/templates
 
-# Build the agent CLI
-echo "Building quotron-agent..."
-go build -o bin/quotron-agent cmd/main.go
-
-# Build the agent assistant
-echo "Building quotron-assistant..."
-go build -o bin/quotron-assistant cmd/assistant/main.go
-
-# Build the AI alerter
-echo "Building quotron-ai-alerter..."
-go build -o bin/quotron-ai-alerter cmd/ai-alerter/main.go
+# Build the unified CLI
+echo "Building ria..."
+go build -o bin/ria cmd/unified/main.go
 
 echo "Build complete!"
-echo "Run agent with: ./bin/quotron-agent --command=help"
-echo "Run assistant with: ./bin/quotron-assistant --api-key=YOUR_OPENAI_API_KEY"
-echo "Run AI alerter with: ./bin/quotron-ai-alerter --api-key=YOUR_OPENAI_API_KEY"
+echo "Run Responsive Investment Assistant:"
+echo "  ./bin/ria help                         # Show available commands"
+echo "  ./bin/ria monitor                      # Monitor price movements"
+echo "  ./bin/ria chat --api-key=YOUR_API_KEY  # Chat with the assistant"
+echo "  ./bin/ria web --api-key=YOUR_API_KEY   # Start the web interface"
+echo "  ./bin/ria ai-alerter                   # Start the AI alert analyzer"
+echo ""
+echo "For real market data, add these options:"
+echo "  --use-real-api                         # Use real Yahoo Finance data"
+echo "  --finance-api-key=YOUR_API_KEY         # For API services that require a key"
