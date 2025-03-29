@@ -39,6 +39,11 @@ go build -o api-scraper ./cmd/main/main.go
 - **Storage** (PostgreSQL): Persists financial data for historical analysis
 - **Scheduler** (Go): Orchestrates recurring data collection tasks
 - **Health** (Go): Monitors and reports on the health of all services
+- **Agent** (Go): Autonomous monitoring and analysis tool for financial data
+  - Command-line interface for monitoring, portfolio analysis, and data retrieval
+  - AI Assistant for natural language interaction with financial data
+  - Message queue integration for scalable alert processing
+  - AI Price Alerter for automated analysis of significant price movements
 
 The system is designed with resilience in mind - components can operate independently and gracefully degrade when dependencies are unavailable.
 
@@ -50,6 +55,7 @@ The system is designed with resilience in mind - components can operate independ
 4. **Storage**: Processed data is persisted to PostgreSQL for historical analysis
 5. **Access**: Applications retrieve data through the API Service's unified interface
 6. **Monitoring**: Health component continuously tracks service status and data quality
+7. **Analysis**: Agent component monitors data, provides alerts, and generates financial insights
 
 ## CLI Reference
 
