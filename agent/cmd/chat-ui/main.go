@@ -272,9 +272,49 @@ func (s *WebServer) processUserMessage(conn *websocket.Conn, content string) {
 		return
 	}
 
-	// For system messages, we don't show the response directly to the user
+	// For system messages, we show a muted system message with tool usage info
+	// and then also a conversational response from the assistant
 	if isSystemMessage {
-		s.logger.Printf("System processing complete, result: %s", response)
+		// First send a system message showing the tool usage (collapsed by default)
+		toolMsg := Message{
+			Type:    "tool_use",
+			Content: "Tool usage information: " + response,
+		}
+		err = conn.WriteJSON(toolMsg)
+		if err != nil {
+			s.logger.Printf("Error sending tool usage info: %v", err)
+		}
+		
+		// Extract the original question from the system message if possible
+		originalQuestion := ""
+		if parts := strings.Split(content, "__SYSTEM__:"); len(parts) > 1 {
+			originalQuestion = strings.TrimSpace(parts[1])
+		}
+		
+		// Now generate a conversational response about the tool result
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel2()
+		
+		// Create a prompt asking the LLM to respond conversationally
+		convPrompt := fmt.Sprintf("__SYSTEM__: Please respond conversationally to this question: \"%s\". "+
+			"Here's the raw data I retrieved to help you: %s", originalQuestion, response)
+		
+		convResponse, err := s.assistant.Chat(ctx2, convPrompt)
+		if err != nil {
+			s.logger.Printf("Error generating conversational response: %v", err)
+			return
+		}
+		
+		// Send the conversational response
+		respMsg := Message{
+			Type:    "assistant",
+			Content: convResponse,
+		}
+		err = conn.WriteJSON(respMsg)
+		if err != nil {
+			s.logger.Printf("Error sending conversational response: %v", err)
+		}
+		
 		return
 	}
 

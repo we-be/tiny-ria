@@ -123,6 +123,10 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'system':
                 addSystemMessage(message.content);
                 break;
+            case 'tool_use':
+                // Show tool usage as a muted collapsible message
+                addToolMessage(message.content);
+                break;
             case 'assistant':
                 addAssistantMessage(message.content);
                 
@@ -472,6 +476,41 @@ document.addEventListener('DOMContentLoaded', () => {
             content: content,
             timestamp: new Date()
         });
+    }
+    
+    // Add a tool usage message (collapsible and muted)
+    function addToolMessage(content) {
+        // Check if chat messages container exists
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
+        const messageElement = createMessageElement('tool', content);
+        elements.chatMessages.appendChild(messageElement);
+        
+        // Format as a collapsible tool message
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            // Create a collapsible section
+            const detailsElement = document.createElement('details');
+            const summaryElement = document.createElement('summary');
+            
+            // Add tool usage icon and summary
+            summaryElement.innerHTML = `<span class="cmd-prompt">$</span> <span class="tool-summary">Tool Usage (click to expand)</span>`;
+            
+            // Add the actual content in a pre tag
+            const preElement = document.createElement('pre');
+            preElement.className = 'tool-content';
+            preElement.textContent = content;
+            
+            // Assemble the elements
+            detailsElement.appendChild(summaryElement);
+            detailsElement.appendChild(preElement);
+            contentDiv.appendChild(detailsElement);
+        }
+        
+        scrollToBottom();
     }
 
     // Add an error message to the chat

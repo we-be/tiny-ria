@@ -375,6 +375,35 @@ body {
     text-align: center;
 }
 
+.message.tool {
+    align-self: center;
+    max-width: 90%;
+    background-color: var(--system-message-bg);
+    color: var(--text-secondary);
+    opacity: 0.8;
+    font-size: 0.9em;
+    border: 1px dashed var(--border-color);
+}
+
+/* Tool message styling */
+.tool-summary {
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-style: italic;
+}
+
+.tool-content {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background-color: var(--card-background);
+    border-radius: var(--border-radius);
+    font-family: monospace;
+    font-size: 0.85em;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow: auto;
+}
+
 .message.error {
     align-self: center;
     max-width: 90%;
