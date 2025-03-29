@@ -427,6 +427,17 @@ body {
     flex: 1;
     padding: 1rem;
     overflow-y: auto;
+}
+
+/* Add animation for updated items */
+.updated {
+    animation: highlight-pulse 1s ease-out;
+}
+
+@keyframes highlight-pulse {
+    0% { background-color: rgba(75, 192, 192, 0.4); }
+    100% { background-color: transparent; }
+}
     display: flex;
     flex-direction: column;
     gap: 1.5rem;

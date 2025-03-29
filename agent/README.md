@@ -1,12 +1,12 @@
 # RIA - Responsive Investment Assistant
 
-RIA is an autonomous financial data monitoring and analysis tool that interacts with the Quotron financial data system. It provides real-time monitoring, portfolio analysis, AI-powered chat, and data visualization capabilities.
+RIA is an autonomous financial data monitoring and analysis tool that interacts with the Quotron financial data system. It provides real-time monitoring, portfolio analysis, AI-powered chat, and data visualization capabilities using **real market data only**.
 
 ## Features
 
 - **Real-time Price Monitoring**: Monitor stock prices with customizable thresholds and get alerts on significant price movements
 - **Portfolio Summary**: Generate comprehensive summaries of stock and cryptocurrency portfolios
-- **Data Retrieval**: Fetch current data for stocks, cryptocurrencies, and market indices
+- **Data Retrieval**: Fetch current data for stocks, cryptocurrencies, and market indices from reliable financial APIs
 - **AI Assistant**: Interactive chat-based AI assistant that can answer financial questions and retrieve market data
 - **Message Queue Integration**: Publish price alerts to Redis streams for scalable processing
 - **AI Price Analysis**: Automatically analyze price movements with AI to provide insights and context
@@ -57,6 +57,8 @@ Global Options:
         Redis server address (default "localhost:6379")
   -debug
         Enable debug mode (default false)
+
+Note: Always uses real market data from the Quotron API service.
 ```
 
 Each command has its own set of options. Use `ria help COMMAND` to see command-specific help.
@@ -135,7 +137,7 @@ Then open your browser to http://localhost:8090 to interact with the agent throu
 
 ## Prerequisites
 
-- The Quotron API service must be running
+- The Quotron API service must be running (critical for real-time data)
 - Go 1.21 or later
 - Redis server (for queue integration features)
 - OpenAI API key (for AI assistant and alerter)

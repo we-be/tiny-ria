@@ -97,7 +97,7 @@ func main() {
 		// Print the analysis
 		fmt.Printf("\n==== AI ANALYSIS: %s (%.2f%%) ====\n", alert.Symbol, alert.PercentChange)
 		fmt.Println(response)
-		fmt.Println("==================================\n")
+		fmt.Print("==================================\n")
 
 		return nil
 	}

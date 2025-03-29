@@ -44,19 +44,26 @@ document.addEventListener('DOMContentLoaded', () => {
         setupWebSocket();
         setupEventListeners();
         applyTheme();
-        updateMonitoredSymbols();
         updateDataPanel();
 
         // Auto-resize textarea as content grows
         autoResizeTextarea(elements.chatInput);
 
-        // Simulate fetching market indices
-        fetchMarketIndices();
-
         // Check if panel should be collapsed
         if (state.isPanelCollapsed) {
             elements.dataPanel.classList.add('collapsed');
         }
+        
+        // Delay the initial data loading to ensure WebSocket is ready
+        setTimeout(() => {
+            // Only update monitored symbols if WebSocket is ready
+            if (state.websocket && state.websocket.readyState === WebSocket.OPEN) {
+                updateMonitoredSymbols();
+                fetchMarketIndices();
+            } else {
+                console.log("WebSocket not ready, will retry data loading on open");
+            }
+        }, 1000);
     }
 
     // Set up WebSocket connection
@@ -69,6 +76,16 @@ document.addEventListener('DOMContentLoaded', () => {
         state.websocket.onopen = () => {
             console.log('WebSocket connection established');
             addSystemMessage('Connected to Quotron Agent');
+            
+            // Retry data loading once connection is established
+            if (state.monitoredSymbols.length > 0) {
+                console.log("WebSocket connected, loading data for monitored symbols");
+                updateMonitoredSymbols();
+            }
+            
+            // Fetch market indices
+            console.log("WebSocket connected, loading market indices");
+            fetchMarketIndices();
         };
 
         state.websocket.onmessage = (event) => {
@@ -111,9 +128,80 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'typing':
                 handleTypingIndicator(message.data.status);
                 break;
+            case 'price_data':
+                handlePriceData(message.data);
+                break;
+            case 'index_data':
+                handleIndexData(message.data);
+                break;
             default:
                 console.warn('Unknown message type:', message.type);
         }
+    }
+    
+    // Handle stock/crypto price data update
+    function handlePriceData(data) {
+        // Update UI for the specific symbol
+        const allSymbols = elements.monitoredList.querySelectorAll('.monitored-symbol');
+        for (const symbolElement of allSymbols) {
+            const nameDiv = symbolElement.querySelector('.symbol-name');
+            if (nameDiv && nameDiv.textContent === data.symbol) {
+                const priceDiv = symbolElement.querySelector('.symbol-price');
+                const changeDiv = symbolElement.querySelector('.symbol-change');
+                
+                priceDiv.textContent = `$${data.price.toFixed(2)}`;
+                changeDiv.textContent = `${data.changePercent >= 0 ? '+' : ''}${data.changePercent.toFixed(2)}%`;
+                changeDiv.classList.remove('positive', 'negative');
+                changeDiv.classList.add(data.changePercent >= 0 ? 'positive' : 'negative');
+                
+                // Briefly highlight to show it was updated
+                symbolElement.classList.add('updated');
+                setTimeout(() => {
+                    symbolElement.classList.remove('updated');
+                }, 1000);
+                break;
+            }
+        }
+    }
+    
+    // Handle market index data update
+    function handleIndexData(data) {
+        // Update the UI for market indices
+        elements.marketIndices.innerHTML = '';
+        
+        // Log received data for debugging
+        console.log("Received market index data:", data);
+        
+        // Extract indices array from data
+        const indices = data.indices || [];
+        
+        if (indices.length === 0) {
+            console.error("No indices data found in the response");
+            const placeholder = document.createElement('div');
+            placeholder.className = 'market-index';
+            placeholder.innerHTML = '<div class="index-name">Error</div><div class="index-value">No data available</div>';
+            elements.marketIndices.appendChild(placeholder);
+            return;
+        }
+        
+        indices.forEach(index => {
+            const clone = templates.marketIndex.content.cloneNode(true);
+            const nameDiv = clone.querySelector('.index-name');
+            const valueDiv = clone.querySelector('.index-value');
+            const changeDiv = clone.querySelector('.index-change');
+            
+            nameDiv.textContent = index.name;
+            valueDiv.textContent = index.value.toFixed(2);
+            
+            const changePercent = index.percent || (index.change / index.value * 100).toFixed(2);
+            changeDiv.textContent = `${index.change >= 0 ? '+' : ''}${index.change.toFixed(2)} (${changePercent}%)`;
+            changeDiv.classList.add(index.change >= 0 ? 'positive' : 'negative');
+            
+            elements.marketIndices.appendChild(clone);
+        });
+        
+        // Update the state
+        state.marketIndices = indices;
     }
 
     // Set up event listeners
@@ -425,7 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const removeBtn = clone.querySelector('.remove-symbol');
             
             nameDiv.textContent = symbol;
-            priceDiv.textContent = '...';
+            priceDiv.textContent = 'Loading...';
             
             // Set up remove button
             removeBtn.addEventListener('click', () => {
@@ -434,40 +522,25 @@ document.addEventListener('DOMContentLoaded', () => {
             
             elements.monitoredList.appendChild(clone);
             
-            // Fetch latest price data (simulated for now)
-            setTimeout(() => {
-                fetchSymbolPrice(symbol);
-            }, Math.random() * 2000);
+            // Fetch latest price data from API
+            fetchSymbolPrice(symbol);
         });
     }
 
-    // Fetch symbol price (simulated)
+    // Fetch symbol price from API via WebSocket
     function fetchSymbolPrice(symbol) {
-        // This would normally be an API call
-        // For now, simulate with random data
-        const price = (Math.random() * 1000).toFixed(2);
-        const change = (Math.random() * 20 - 10).toFixed(2);
-        
-        // Update UI
-        const symbolElement = elements.monitoredList.querySelector(`.monitored-symbol:has(.symbol-name:contains('${symbol}'))`);
-        if (symbolElement) {
-            const priceDiv = symbolElement.querySelector('.symbol-price');
-            const changeDiv = symbolElement.querySelector('.symbol-change');
-            
-            priceDiv.textContent = `$${price}`;
-            changeDiv.textContent = `${change}%`;
-            changeDiv.classList.add(parseFloat(change) >= 0 ? 'positive' : 'negative');
+        // Request the price data via WebSocket command
+        if (state.websocket && state.websocket.readyState === WebSocket.OPEN) {
+            state.websocket.send(JSON.stringify({
+                type: 'command',
+                content: 'fetch_price',
+                data: {
+                    symbol: symbol
+                }
+            }));
         }
-    }
-
-    // Alternative implementation since :has() is not widely supported
-    function fetchSymbolPrice(symbol) {
-        // This would normally be an API call
-        // For now, simulate with random data
-        const price = (Math.random() * 1000).toFixed(2);
-        const change = (Math.random() * 20 - 10).toFixed(2);
         
-        // Update UI
+        // Show loading indicator until data arrives
         const allSymbols = elements.monitoredList.querySelectorAll('.monitored-symbol');
         for (const symbolElement of allSymbols) {
             const nameDiv = symbolElement.querySelector('.symbol-name');
@@ -475,41 +548,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 const priceDiv = symbolElement.querySelector('.symbol-price');
                 const changeDiv = symbolElement.querySelector('.symbol-change');
                 
-                priceDiv.textContent = `$${price}`;
-                changeDiv.textContent = `${change}%`;
-                changeDiv.classList.add(parseFloat(change) >= 0 ? 'positive' : 'negative');
+                priceDiv.textContent = 'Loading...';
+                changeDiv.textContent = '';
                 break;
             }
         }
     }
 
-    // Fetch market indices (simulated)
+    // Fetch market indices from API via WebSocket
     function fetchMarketIndices() {
-        // Simulated data
-        const indices = [
-            { name: 'S&P 500', value: 5021.84, change: 15.21 },
-            { name: 'DOW', value: 38996.39, change: -105.45 },
-            { name: 'NASDAQ', value: 15930.02, change: 67.24 }
-        ];
+        // Request the market indices data via WebSocket command
+        if (state.websocket && state.websocket.readyState === WebSocket.OPEN) {
+            state.websocket.send(JSON.stringify({
+                type: 'command',
+                content: 'fetch_indices',
+                data: {
+                    indices: ['S&P 500', 'DOW', 'NASDAQ']
+                }
+            }));
+        }
         
-        // Update state
-        state.marketIndices = indices;
-        
-        // Update UI
+        // Show loading indicators until data arrives
         elements.marketIndices.innerHTML = '';
-        indices.forEach(index => {
+        ['S&P 500', 'DOW', 'NASDAQ'].forEach(indexName => {
             const clone = templates.marketIndex.content.cloneNode(true);
             const nameDiv = clone.querySelector('.index-name');
             const valueDiv = clone.querySelector('.index-value');
             const changeDiv = clone.querySelector('.index-change');
             
-            nameDiv.textContent = index.name;
-            valueDiv.textContent = index.value.toFixed(2);
-            
-            const changeValue = index.change;
-            const changePercent = (changeValue / index.value * 100).toFixed(2);
-            changeDiv.textContent = `${changeValue >= 0 ? '+' : ''}${changeValue.toFixed(2)} (${changePercent}%)`;
-            changeDiv.classList.add(changeValue >= 0 ? 'positive' : 'negative');
+            nameDiv.textContent = indexName;
+            valueDiv.textContent = 'Loading...';
+            changeDiv.textContent = '';
             
             elements.marketIndices.appendChild(clone);
         });

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,8 +32,10 @@ var (
 	redisAddr     = flag.String("redis", "localhost:6379", "Redis server address")
 	consumerID    = flag.String("consumer-id", "chat-ui", "Consumer ID for Redis consumer group")
 	debug         = flag.Bool("debug", false, "Enable debug mode")
-	useRealAPI    = flag.Bool("use-real-api", false, "Use real financial API instead of local API service")
-	financeAPIKey = flag.String("finance-api-key", "", "API key for real financial data service")
+	
+	// Deprecated flags - kept for backward compatibility but no longer used
+	_             = flag.Bool("use-real-api", false, "Deprecated: Always using Quotron API now")
+	_             = flag.String("finance-api-key", "", "Deprecated: No longer needed") 
 )
 
 // WebServer handles the chat web interface
@@ -78,8 +81,6 @@ func main() {
 		APIPort:     *apiPort,
 		EnableQueue: true,
 		RedisAddr:   *redisAddr,
-		UseRealAPI:  *useRealAPI,
-		RealAPIKey:  *financeAPIKey,
 	})
 
 	llmConfig := pkg.LLMConfig{

@@ -6,17 +6,20 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/we-be/tiny-ria/agent/pkg"
+	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/client"
 )
 
 //go:embed static templates
@@ -36,8 +39,6 @@ type commonFlags struct {
 	redisAddr     string
 	apiKey        string
 	debug         bool
-	useRealAPI    bool
-	financeAPIKey string
 }
 
 var (
@@ -51,21 +52,28 @@ var (
 )
 
 func init() {
-	// Initialize the logger
-	logger = log.New(os.Stdout, "[Quotron] ", log.LstdFlags)
+	// Set up logging to both stdout and a file
+	logFile, err := os.OpenFile("/tmp/ria_logs/agent.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("Error opening log file: %v\n", err)
+		// Fall back to stdout only
+		logger = log.New(os.Stdout, "[Quotron] ", log.LstdFlags)
+	} else {
+		// Use MultiWriter to log to both stdout and the file
+		multiWriter := io.MultiWriter(os.Stdout, logFile)
+		logger = log.New(multiWriter, "[Quotron] ", log.LstdFlags)
+	}
 
 	// Get the binary path
 	binPath, _ = os.Executable()
 
 	// Initialize common flags
 	commonArgs = commonFlags{
-		apiHost:       "localhost",
-		apiPort:       8080,
-		redisAddr:     "localhost:6379",
-		apiKey:        "",
-		debug:         false,
-		useRealAPI:    false,
-		financeAPIKey: "",
+		apiHost:   "localhost",
+		apiPort:   8080,
+		redisAddr: "localhost:6379",
+		apiKey:    "",
+		debug:     false,
 	}
 
 	// Setup commands
@@ -116,12 +124,15 @@ func init() {
 func main() {
 	// Set up flags
 	flag.StringVar(&commonArgs.apiHost, "api-host", "localhost", "Host of the Quotron API service")
-	flag.IntVar(&commonArgs.apiPort, "api-port", 8080, "Port of the Quotron API service")
+	flag.IntVar(&commonArgs.apiPort, "api-port", 8080, "Port of the Quotron API service") 
 	flag.StringVar(&commonArgs.redisAddr, "redis", "localhost:6379", "Redis server address")
 	flag.StringVar(&commonArgs.apiKey, "api-key", "", "API key for OpenAI or Anthropic (if empty, OPENAI_API_KEY or ANTHROPIC_API_KEY env var is used)")
 	flag.BoolVar(&commonArgs.debug, "debug", false, "Enable debug mode")
-	flag.BoolVar(&commonArgs.useRealAPI, "use-real-api", false, "Use real financial API instead of local API service")
-	flag.StringVar(&commonArgs.financeAPIKey, "finance-api-key", "", "API key for real financial data service")
+	
+	// Remove these flags that were previously defined
+	// No longer using these flags as we always use the Quotron API
+	_ = flag.Bool("use-real-api", false, "Deprecated: Always using Quotron API now")
+	_ = flag.String("finance-api-key", "", "Deprecated: No longer needed")
 
 	// Custom usage
 	flag.Usage = func() {
@@ -298,8 +309,6 @@ func cmdMonitor(args []string) {
 		APIPort:     commonArgs.apiPort,
 		EnableQueue: *enableQueue,
 		RedisAddr:   commonArgs.redisAddr,
-		UseRealAPI:  commonArgs.useRealAPI,
-		RealAPIKey:  commonArgs.financeAPIKey,
 	})
 
 	// Set up context with cancellation for cleanup
@@ -353,11 +362,9 @@ func cmdFetch(args []string) {
 
 	// Create agent
 	agent := pkg.NewAgent(pkg.AgentConfig{
-		Name:       "Fetch",
-		APIHost:    commonArgs.apiHost,
-		APIPort:    commonArgs.apiPort,
-		UseRealAPI: commonArgs.useRealAPI,
-		RealAPIKey: commonArgs.financeAPIKey,
+		Name:    "Fetch",
+		APIHost: commonArgs.apiHost,
+		APIPort: commonArgs.apiPort,
 	})
 
 	// Create context
@@ -453,11 +460,9 @@ func cmdPortfolio(args []string) {
 
 	// Create agent
 	agent := pkg.NewAgent(pkg.AgentConfig{
-		Name:       "Portfolio",
-		APIHost:    commonArgs.apiHost,
-		APIPort:    commonArgs.apiPort,
-		UseRealAPI: commonArgs.useRealAPI,
-		RealAPIKey: commonArgs.financeAPIKey,
+		Name:    "Portfolio",
+		APIHost: commonArgs.apiHost,
+		APIPort: commonArgs.apiPort,
 	})
 
 	// Create context
@@ -502,11 +507,9 @@ func cmdChat(args []string) {
 
 	// Create agent
 	agent := pkg.NewAgent(pkg.AgentConfig{
-		Name:       "ChatAssistant",
-		APIHost:    commonArgs.apiHost,
-		APIPort:    commonArgs.apiPort,
-		UseRealAPI: commonArgs.useRealAPI,
-		RealAPIKey: commonArgs.financeAPIKey,
+		Name:    "ChatAssistant",
+		APIHost: commonArgs.apiHost,
+		APIPort: commonArgs.apiPort,
 	})
 
 	// Default to OpenAI model if not specified
@@ -617,8 +620,6 @@ func cmdWeb(args []string) {
 		APIPort:     commonArgs.apiPort,
 		EnableQueue: true,
 		RedisAddr:   commonArgs.redisAddr,
-		UseRealAPI:  commonArgs.useRealAPI,
-		RealAPIKey:  commonArgs.financeAPIKey,
 	})
 
 	// Default to OpenAI model
@@ -642,7 +643,7 @@ func cmdWeb(args []string) {
 				return true // Allow connections from any origin
 			},
 		},
-		activeClients: make(map[*websocket.Conn]bool),
+		activeClients: make(map[*ThreadSafeConn]bool),
 		logger:        logger,
 	}
 
@@ -715,8 +716,6 @@ func cmdAIAlerter(args []string) {
 		APIHost:     commonArgs.apiHost,
 		APIPort:     commonArgs.apiPort,
 		EnableQueue: false, // We don't need to publish, only consume
-		UseRealAPI:  commonArgs.useRealAPI,
-		RealAPIKey:  commonArgs.financeAPIKey,
 	})
 
 	// Default to OpenAI model if not specified
@@ -777,7 +776,7 @@ func cmdAIAlerter(args []string) {
 		// Print the analysis
 		fmt.Printf("\n==== AI ANALYSIS: %s (%.2f%%) ====\n", alert.Symbol, alert.PercentChange)
 		fmt.Println(response)
-		fmt.Println("==================================\n")
+		fmt.Print("==================================\n")
 
 		return nil
 	}
@@ -810,8 +809,9 @@ func cmdAIAlerter(args []string) {
 type WebServer struct {
 	assistant     *pkg.AgentAssistant
 	upgrader      websocket.Upgrader
-	activeClients map[*websocket.Conn]bool
+	activeClients map[*ThreadSafeConn]bool
 	logger        *log.Logger
+	clientsMutex  sync.Mutex // Mutex to protect activeClients map
 }
 
 // Message represents a chat message
@@ -853,19 +853,29 @@ func (s *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger.Printf("Error upgrading to WebSocket: %v", err)
 		return
 	}
-	defer conn.Close()
+	
+	// Create thread-safe connection wrapper
+	safeConn := NewThreadSafeConn(conn)
+	defer safeConn.Close()
 
-	// Register client
-	s.activeClients[conn] = true
-	defer delete(s.activeClients, conn)
+	// Thread-safe client registration
+	s.clientsMutex.Lock()
+	s.activeClients[safeConn] = true
+	s.clientsMutex.Unlock()
+	
+	defer func() {
+		s.clientsMutex.Lock()
+		delete(s.activeClients, safeConn)
+		s.clientsMutex.Unlock()
+	}()
 
 	// Send welcome message
 	welcomeMsg := Message{
 		Type:    "system",
 		Content: "Welcome to the Quotron Agent Chat Interface. How can I help you today?",
 	}
-	err = conn.WriteJSON(welcomeMsg)
-	if err != nil {
+	
+	if err := safeConn.WriteJSON(welcomeMsg); err != nil {
 		s.logger.Printf("Error sending welcome message: %v", err)
 		return
 	}
@@ -873,7 +883,7 @@ func (s *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Listen for messages from the client
 	for {
 		var msg Message
-		err := conn.ReadJSON(&msg)
+		err := safeConn.ReadJSON(&msg)
 		if err != nil {
 			s.logger.Printf("Error reading message: %v", err)
 			break
@@ -883,10 +893,10 @@ func (s *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		switch msg.Type {
 		case "user":
 			// Process user message
-			go s.processUserMessage(conn, msg.Content)
+			go s.processUserMessage(safeConn, msg.Content)
 		case "command":
 			// Process command
-			go s.processCommand(conn, msg.Content, msg.Data)
+			go s.processCommand(safeConn, msg.Content, msg.Data)
 		default:
 			s.logger.Printf("Unknown message type: %s", msg.Type)
 		}
@@ -894,7 +904,7 @@ func (s *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // processUserMessage processes a user message and sends a response
-func (s *WebServer) processUserMessage(conn *websocket.Conn, content string) {
+func (s *WebServer) processUserMessage(conn *ThreadSafeConn, content string) {
 	// Create context
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -961,7 +971,7 @@ func (s *WebServer) processUserMessage(conn *websocket.Conn, content string) {
 }
 
 // processCommand handles special commands
-func (s *WebServer) processCommand(conn *websocket.Conn, command string, data map[string]interface{}) {
+func (s *WebServer) processCommand(conn *ThreadSafeConn, command string, data map[string]interface{}) {
 	switch command {
 	case "monitor":
 		// Extract symbols from data
@@ -992,7 +1002,121 @@ func (s *WebServer) processCommand(conn *websocket.Conn, command string, data ma
 		
 		// TODO: Implement actual monitoring setup
 		
-	// ... other commands as needed
+	case "fetch_price":
+		// Extract symbol from data
+		symbol, ok := data["symbol"].(string)
+		if !ok || symbol == "" {
+			s.sendError(conn, "No symbol provided for price fetch")
+			return
+		}
+		
+		// Create context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		
+		// Determine if it's a crypto symbol (contains dash)
+		var quote *client.StockQuote
+		var err error
+		
+		if strings.Contains(symbol, "-") {
+			// Fetch crypto quote
+			cryptoResult, err := s.assistant.GetAgent().FetchCryptoData(ctx, []string{symbol})
+			if err != nil {
+				s.logger.Printf("Error fetching crypto data for %s: %v", symbol, err)
+				s.sendError(conn, fmt.Sprintf("Error fetching data for %s: %v", symbol, err))
+				return
+			}
+			
+			if q, ok := cryptoResult[symbol]; ok {
+				quote = q
+			} else {
+				s.sendError(conn, fmt.Sprintf("No data found for symbol: %s", symbol))
+				return
+			}
+		} else {
+			// Fetch stock quote
+			stockResult, err := s.assistant.GetAgent().FetchStockData(ctx, []string{symbol})
+			if err != nil {
+				s.logger.Printf("Error fetching stock data for %s: %v", symbol, err)
+				s.sendError(conn, fmt.Sprintf("Error fetching data for %s: %v", symbol, err))
+				return
+			}
+			
+			if q, ok := stockResult[symbol]; ok {
+				quote = q
+			} else {
+				s.sendError(conn, fmt.Sprintf("No data found for symbol: %s", symbol))
+				return
+			}
+		}
+		
+		// Send the price data to the client
+		priceMsg := Message{
+			Type: "price_data",
+			Data: map[string]interface{}{
+				"symbol":        quote.Symbol,
+				"price":         quote.Price,
+				"change":        quote.Change,
+				"changePercent": quote.ChangePercent,
+				"volume":        quote.Volume,
+				"timestamp":     quote.Timestamp,
+			},
+		}
+		
+		err = conn.WriteJSON(priceMsg)
+		if err != nil {
+			s.logger.Printf("Error sending price data: %v", err)
+		}
+		
+	case "fetch_indices":
+		// Extract indices from data, or use defaults
+		var indicesStr []string
+		indices, ok := data["indices"].([]interface{})
+		if !ok || len(indices) == 0 {
+			// Use default indices
+			indicesStr = []string{"S&P 500", "DOW", "NASDAQ"}
+		} else {
+			// Convert interface slice to string slice
+			indicesStr = make([]string, len(indices))
+			for i, idx := range indices {
+				indicesStr[i], _ = idx.(string)
+			}
+		}
+		
+		// Create context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		
+		// Fetch market data
+		marketResult, err := s.assistant.GetAgent().FetchMarketData(ctx, indicesStr)
+		if err != nil {
+			s.logger.Printf("Error fetching market data: %v", err)
+			s.sendError(conn, fmt.Sprintf("Error fetching market data: %v", err))
+			return
+		}
+		
+		// Convert to a format suitable for the UI
+		marketData := make([]map[string]interface{}, 0, len(marketResult))
+		for name, data := range marketResult {
+			marketData = append(marketData, map[string]interface{}{
+				"name":     name,
+				"value":    data.Value,
+				"change":   data.Change,
+				"percent":  data.ChangePercent,
+				"timestamp": data.Timestamp,
+			})
+		}
+		
+		// Send the market data to the client
+		indexMsg := Message{
+			Type: "index_data",
+			Data: map[string]interface{}{"indices": marketData},
+		}
+		
+		err = conn.WriteJSON(indexMsg)
+		if err != nil {
+			s.logger.Printf("Error sending index data: %v", err)
+		}
 
 	default:
 		s.sendError(conn, fmt.Sprintf("Unknown command: %s", command))
@@ -1000,10 +1124,16 @@ func (s *WebServer) processCommand(conn *websocket.Conn, command string, data ma
 }
 
 // sendError sends an error message to the client
-func (s *WebServer) sendError(conn *websocket.Conn, errorMsg string) {
+func (s *WebServer) sendError(conn *ThreadSafeConn, errorMsg string) {
+	// Create a simplified user-friendly error message
+	userMsg := "Data temporarily unavailable. Please try again later."
+	
+	// Log the full error for debugging
+	s.logger.Printf("Error details: %s", errorMsg)
+	
 	errMsg := Message{
 		Type:    "error",
-		Content: errorMsg,
+		Content: userMsg,
 	}
 	err := conn.WriteJSON(errMsg)
 	if err != nil {
@@ -1063,22 +1193,26 @@ func (s *WebServer) startAlertConsumer(ctx context.Context, consumerID string) {
 
 // getChatSystemPrompt returns the system prompt for the chat interface
 func getChatSystemPrompt() string {
-	return `You are a financial assistant integrated with Quotron, a financial data system.
+	return `You are a concise financial assistant integrated with Quotron, a financial data system.
 You have access to real-time financial data through API calls that I can make for you.
 
-I can help you with:
-1. Fetching current stock prices, cryptocurrency values, and market indices
-2. Monitoring price movements and alerting on significant changes
-3. Generating portfolio summaries and analysis
-4. Providing financial insights based on current market data
+IMPORTANT GUIDELINES:
+- Give direct, factual responses focused on data and numbers
+- Avoid unnecessary explanations, advice, or commentary
+- When presenting financial data, focus on key numbers and facts only
+- Keep responses very brief (1-3 sentences when possible)
+- Do not offer investment advice or recommendations
+- Do not explain every aspect of market movements
+- Present data in a clean, minimal format
 
-When you ask about a financial instrument, I'll fetch the latest data for you.
-If you want to track price movements, I can set up monitoring with alerts.
-For portfolio analysis, provide the symbols you want to include.
+When asked about stocks, crypto, or indices, simply provide the current price, change, and volume.
+Skip explanations of what the data means, market sentiment, or other commentary.
 
-I'll always try to provide you with the most up-to-date information from reliable financial data sources.
+Example response for stock data:
+"AAPL: $170.55 (+1.2%, Vol: 45.7M)"
 
-When appropriate, I can also generate visualizations and interactive charts for financial data.
+Example response for market question:
+"S&P 500: 4,783.35 (-0.2%), NASDAQ: 16,302.76 (+0.1%), DOW: 38,905.66 (-0.4%)"
 `
 }
 

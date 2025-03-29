@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/we-be/tiny-ria/agent/pkg/realdata"
 	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/client"
 )
 
@@ -19,8 +19,6 @@ type Agent struct {
 	apiClient         *client.APIClient
 	logger            *log.Logger
 	queuePublisher    *QueuePublisher
-	realDataProvider  realdata.FinancialDataProvider
-	forceRealData     bool
 }
 
 // AgentConfig holds configuration parameters for the agent
@@ -31,10 +29,6 @@ type AgentConfig struct {
 	LogPrefix     string
 	RedisAddr     string // Redis server address (optional)
 	EnableQueue   bool   // Enable publishing to message queue
-	UseRealAPI    bool   // Use real financial API instead of local API service
-	ForceRealData bool   // Skip API client completely and always use direct data provider
-	DataProvider  string // Name of the data provider to use (e.g., "yahoo-finance")
-	RealAPIKey    string // API key for real financial service
 }
 
 // NewAgent creates a new Agent instance
@@ -46,18 +40,9 @@ func NewAgent(config AgentConfig) *Agent {
 
 	logger := log.New(log.Writer(), logPrefix, log.LstdFlags)
 	
-	var apiClient *client.APIClient
-	
-	// Create the appropriate API client based on configuration
-	if config.UseRealAPI {
-		// Use a real external financial API
-		logger.Printf("Using real financial API for data")
-		apiClient = client.NewRealFinanceAPIClient(config.RealAPIKey)
-	} else {
-		// Use the configured API service (local or remote)
-		logger.Printf("Using API service at %s:%d for data", config.APIHost, config.APIPort)
-		apiClient = client.NewAPIClient(config.APIHost, config.APIPort)
-	}
+	// Create the API client using Quotron API
+	logger.Printf("Using Quotron API service at %s:%d for data", config.APIHost, config.APIPort)
+	apiClient := client.NewAPIClient(config.APIHost, config.APIPort)
 	
 	agent := &Agent{
 		name:      config.Name,
@@ -88,14 +73,20 @@ func NewAgent(config AgentConfig) *Agent {
 // FetchStockData fetches stock data for given symbols
 func (a *Agent) FetchStockData(ctx context.Context, symbols []string) (map[string]*client.StockQuote, error) {
 	a.logger.Printf("Fetching stock data for %d symbols: %s", len(symbols), strings.Join(symbols, ", "))
+	a.logger.Printf("DEBUG: Using API client with configuration from AgentConfig")
 	
 	results := make(map[string]*client.StockQuote)
 	var errors []string
 
 	for _, symbol := range symbols {
-		quote, err := a.apiClient.GetStockQuote(ctx, symbol)
+		// Clean up the symbol to use standard format
+		cleanSymbol := GetStandardTickerSymbol(symbol)
+		
+		a.logger.Printf("DEBUG: Requesting stock quote for %s (clean symbol: %s) from Quotron API", symbol, cleanSymbol)
+		quote, err := a.apiClient.GetStockQuote(ctx, cleanSymbol)
 		if err != nil {
-			a.logger.Printf("Error fetching stock quote for %s: %v", symbol, err)
+			a.logger.Printf("CURL: curl -v 'http://localhost:8080/api/quote/%s'", url.PathEscape(cleanSymbol))
+			a.logger.Printf("ERROR: Failed fetching stock quote for %s: %v", symbol, err)
 			errors = append(errors, fmt.Sprintf("%s: %v", symbol, err))
 			continue
 		}
@@ -114,14 +105,20 @@ func (a *Agent) FetchStockData(ctx context.Context, symbols []string) (map[strin
 // FetchCryptoData fetches cryptocurrency data for given symbols
 func (a *Agent) FetchCryptoData(ctx context.Context, symbols []string) (map[string]*client.StockQuote, error) {
 	a.logger.Printf("Fetching crypto data for %d symbols: %s", len(symbols), strings.Join(symbols, ", "))
+	a.logger.Printf("DEBUG: Using API client for crypto quotes")
 	
 	results := make(map[string]*client.StockQuote)
 	var errors []string
 
 	for _, symbol := range symbols {
-		quote, err := a.apiClient.GetCryptoQuote(ctx, symbol)
+		// Clean up the symbol to use standard format
+		cleanSymbol := GetStandardTickerSymbol(symbol)
+		
+		a.logger.Printf("DEBUG: Requesting crypto quote for %s (clean symbol: %s) from Quotron API", symbol, cleanSymbol)
+		quote, err := a.apiClient.GetCryptoQuote(ctx, cleanSymbol)
 		if err != nil {
-			a.logger.Printf("Error fetching crypto quote for %s: %v", symbol, err)
+			a.logger.Printf("CURL: curl -v 'http://localhost:8080/api/quote/%s'", url.PathEscape(cleanSymbol))
+			a.logger.Printf("ERROR: Failed fetching crypto quote for %s: %v", symbol, err)
 			errors = append(errors, fmt.Sprintf("%s: %v", symbol, err))
 			continue
 		}
@@ -140,26 +137,31 @@ func (a *Agent) FetchCryptoData(ctx context.Context, symbols []string) (map[stri
 // FetchMarketData fetches market index data for given indices
 func (a *Agent) FetchMarketData(ctx context.Context, indices []string) (map[string]*client.MarketData, error) {
 	a.logger.Printf("Fetching market data for %d indices: %s", len(indices), strings.Join(indices, ", "))
+	a.logger.Printf("DEBUG: Using API client for market indices")
 	
 	results := make(map[string]*client.MarketData)
 	var errors []string
 
 	for _, index := range indices {
-		// Map well-known index names to Yahoo Finance symbols
-		yahooIndex := mapIndexToYahooSymbol(index)
+		// Map well-known index names to standardized symbols and clean up
+		originalIndex := index
+		index = GetStandardTickerSymbol(index)
+		standardIndex := mapIndexToYahooSymbol(index)
+		a.logger.Printf("DEBUG: Mapped index '%s' to standardized symbol '%s'", originalIndex, standardIndex)
 		
-		// The logs show the API might be sending the original string including parentheses
-		// Make sure we're sending just the Yahoo symbol
-		data, err := a.apiClient.GetMarketData(ctx, yahooIndex)
+		// Get data from Quotron API
+		a.logger.Printf("DEBUG: Requesting market data for %s from Quotron API", standardIndex)
+		data, err := a.apiClient.GetMarketData(ctx, standardIndex)
 		if err != nil {
-			a.logger.Printf("Error fetching market data for %s (Yahoo symbol: %s): %v", index, yahooIndex, err)
-			errors = append(errors, fmt.Sprintf("%s: %v", index, err))
+			a.logger.Printf("CURL: curl -v 'http://localhost:8080/api/quote/%s'", url.PathEscape(standardIndex))
+			a.logger.Printf("ERROR: Failed fetching market data for %s (standard symbol: %s): %v", originalIndex, standardIndex, err)
+			errors = append(errors, fmt.Sprintf("%s: %v", originalIndex, err))
 			continue
 		}
 		
 		// Store with the original index name for consistency
-		results[index] = data
-		a.logger.Printf("Successfully fetched market data for %s: Value=%.2f", index, data.Value)
+		results[originalIndex] = data
+		a.logger.Printf("Successfully fetched market data for %s: Value=%.2f", originalIndex, data.Value)
 	}
 	
 	if len(errors) > 0 {
@@ -167,6 +169,30 @@ func (a *Agent) FetchMarketData(ctx context.Context, indices []string) (map[stri
 	}
 	
 	return results, nil
+}
+
+// GetStandardTickerSymbol extracts a standard ticker symbol from various formats
+func GetStandardTickerSymbol(symbol string) string {
+	cleanSymbol := symbol
+	
+	// If it's in format like "Bitcoin (BTC)-USD", extract just "BTC-USD"
+	if parenthesisIdx := strings.Index(symbol, "("); parenthesisIdx != -1 {
+		closingIdx := strings.Index(symbol, ")")
+		if closingIdx != -1 && closingIdx > parenthesisIdx {
+			ticker := symbol[parenthesisIdx+1:closingIdx]
+			if dashIdx := strings.Index(symbol, "-"); dashIdx != -1 {
+				suffix := symbol[dashIdx:]
+				cleanSymbol = ticker + suffix
+			} else {
+				cleanSymbol = ticker
+			}
+		}
+	}
+	
+	// Remove any spaces
+	cleanSymbol = strings.ReplaceAll(cleanSymbol, " ", "")
+	
+	return cleanSymbol
 }
 
 // mapIndexToYahooSymbol maps common index names to their Yahoo Finance symbols

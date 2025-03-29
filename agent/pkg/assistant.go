@@ -16,6 +16,11 @@ type AgentAssistant struct {
 	symbolsRgx *regexp.Regexp
 }
 
+// GetAgent returns the underlying Agent
+func (a *AgentAssistant) GetAgent() *Agent {
+	return a.agent
+}
+
 // NewAgentAssistant creates a new agent assistant
 func NewAgentAssistant(agent *Agent, llmConfig LLMConfig) *AgentAssistant {
 	// Compile regex for finding stock symbols
