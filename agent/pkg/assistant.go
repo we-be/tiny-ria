@@ -45,6 +45,11 @@ func (a *AgentAssistant) Chat(ctx context.Context, userMessage string) (string, 
 		a.history.AddUserMessage(userMessage)
 	}
 
+	// Special handling for "what can you do" type questions
+	if matchesCapabilityQuestion(userMessage) {
+		return getCapabilitiesResponse(), nil
+	}
+	
 	// Check for commands that need direct processing before sending to LLM
 	if isDirectCommand(userMessage) {
 		response, err := a.processDirectCommand(ctx, userMessage)
@@ -127,6 +132,36 @@ Based on this information, please provide a comprehensive and insightful respons
 	}
 	
 	return response, nil
+}
+
+// matchesCapabilityQuestion checks if the user is asking about capabilities
+func matchesCapabilityQuestion(message string) bool {
+	message = strings.ToLower(message)
+	return strings.Contains(message, "what can you do") ||
+		strings.Contains(message, "how can you help") || 
+		strings.Contains(message, "what are your capabilities") ||
+		strings.Contains(message, "what tools") ||
+		(strings.Contains(message, "help") && len(message) < 10)
+}
+
+// getCapabilitiesResponse returns a response about the assistant's capabilities
+func getCapabilitiesResponse() string {
+	return `I can help you with various financial tasks:
+
+1. **Market Information**: Ask about specific stocks, market indices, or cryptocurrency prices
+2. **Portfolio Monitoring**: I can track stocks and alert you to price changes
+3. **Financial Analysis**: Ask me to analyze stock trends or compare companies 
+4. **Price Alerts**: Set up alerts for price changes with "monitor [SYMBOL] with [X]% threshold"
+5. **Market Summaries**: Get quick updates on market performance
+
+Examples:
+- "How is AAPL performing today?"
+- "Show me the top tech stocks"
+- "Monitor TSLA, MSFT, GOOGL with 2% threshold"
+- "What's happening with Bitcoin?"
+- "Compare AAPL and MSFT performance"
+- "Show me the latest S&P 500 data"
+`
 }
 
 // isDirectCommand checks if the user message is a direct command

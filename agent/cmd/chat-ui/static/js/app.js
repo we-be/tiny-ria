@@ -334,10 +334,10 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.chatMessages.appendChild(messageElement);
         scrollToBottom();
         
-        // Add prefix to make it look command-like
+        // Simple text without prefix
         const contentDiv = messageElement.querySelector('.message-content');
         if (contentDiv) {
-            contentDiv.innerHTML = `<span class="cmd-prompt">$</span> ${content}`;
+            contentDiv.textContent = content;
         }
         
         // Save to history
@@ -396,10 +396,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageElement = createMessageElement('system', content);
         elements.chatMessages.appendChild(messageElement);
         
-        // Add terminal prefix to make it look like a system message
+        // Simple text for system message
         const contentDiv = messageElement.querySelector('.message-content');
         if (contentDiv) {
-            contentDiv.innerHTML = `<span class="cmd-prompt">#</span> ${content}`;
+            contentDiv.textContent = content;
         }
         
         scrollToBottom();
@@ -430,8 +430,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const detailsElement = document.createElement('details');
             const summaryElement = document.createElement('summary');
             
-            // Add tool usage icon and summary
-            summaryElement.innerHTML = `<span class="cmd-prompt">$</span> <span class="tool-summary">Tool Usage (click to expand)</span>`;
+            // Simple tool usage summary
+            summaryElement.innerHTML = `<span class="tool-summary">Tool Usage (click to expand)</span>`;
             
             // Add the actual content in a pre tag
             const preElement = document.createElement('pre');
@@ -461,10 +461,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageElement = createMessageElement('error', content);
         elements.chatMessages.appendChild(messageElement);
         
-        // Add error prefix
+        // Simple text for error
         const contentDiv = messageElement.querySelector('.message-content');
         if (contentDiv) {
-            contentDiv.innerHTML = `<span class="cmd-prompt">!</span> ${content}`;
+            contentDiv.textContent = content;
         }
         
         scrollToBottom();
