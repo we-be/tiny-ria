@@ -37,6 +37,7 @@ type MarketData struct {
 type APIClient struct {
 	baseURL    string
 	httpClient *http.Client
+	realClient *RealFinanceAPIClient
 }
 
 // NewAPIClient creates a new API client
@@ -51,6 +52,12 @@ func NewAPIClient(host string, port int) *APIClient {
 
 // GetStockQuote fetches a stock quote from the API service
 func (c *APIClient) GetStockQuote(ctx context.Context, symbol string) (*StockQuote, error) {
+	// If real finance client is available, use it
+	if c.realClient != nil {
+		return c.realClient.GetYahooFinanceData(ctx, symbol)
+	}
+
+	// Otherwise use the local API service
 	url := fmt.Sprintf("%s/api/quote/%s", c.baseURL, symbol)
 	
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -79,6 +86,12 @@ func (c *APIClient) GetStockQuote(ctx context.Context, symbol string) (*StockQuo
 
 // GetMarketData fetches market index data from the API service
 func (c *APIClient) GetMarketData(ctx context.Context, index string) (*MarketData, error) {
+	// If real finance client is available, use it
+	if c.realClient != nil {
+		return c.realClient.GetMarketIndex(ctx, index)
+	}
+
+	// Otherwise use the local API service
 	url := fmt.Sprintf("%s/api/index/%s", c.baseURL, index)
 	
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -125,6 +138,12 @@ func (c *APIClient) GetHealth(ctx context.Context) (bool, error) {
 
 // GetCryptoQuote fetches a crypto quote from the API service
 func (c *APIClient) GetCryptoQuote(ctx context.Context, symbol string) (*StockQuote, error) {
+	// If real finance client is available, use it
+	if c.realClient != nil {
+		return c.realClient.GetCryptoData(ctx, symbol)
+	}
+
+	// Otherwise use the local API service
 	url := fmt.Sprintf("%s/api/crypto/%s", c.baseURL, symbol)
 	
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
