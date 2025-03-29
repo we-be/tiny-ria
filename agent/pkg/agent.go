@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -124,13 +125,19 @@ func (a *Agent) FetchMarketData(ctx context.Context, indices []string) (map[stri
 	var errors []string
 
 	for _, index := range indices {
-		data, err := a.apiClient.GetMarketData(ctx, index)
+		// Map well-known index names to Yahoo Finance symbols
+		yahooIndex := mapIndexToYahooSymbol(index)
+		
+		// The logs show the API might be sending the original string including parentheses
+		// Make sure we're sending just the Yahoo symbol
+		data, err := a.apiClient.GetMarketData(ctx, yahooIndex)
 		if err != nil {
-			a.logger.Printf("Error fetching market data for %s: %v", index, err)
+			a.logger.Printf("Error fetching market data for %s (Yahoo symbol: %s): %v", index, yahooIndex, err)
 			errors = append(errors, fmt.Sprintf("%s: %v", index, err))
 			continue
 		}
 		
+		// Store with the original index name for consistency
 		results[index] = data
 		a.logger.Printf("Successfully fetched market data for %s: Value=%.2f", index, data.Value)
 	}
@@ -140,6 +147,36 @@ func (a *Agent) FetchMarketData(ctx context.Context, indices []string) (map[stri
 	}
 	
 	return results, nil
+}
+
+// mapIndexToYahooSymbol maps common index names to their Yahoo Finance symbols
+func mapIndexToYahooSymbol(index string) string {
+	// Check if the index already has a Yahoo symbol in parentheses and extract it
+	parenthesesRegex := regexp.MustCompile(`(.*)\s*\(\^([A-Z]+)\)`)
+	if matches := parenthesesRegex.FindStringSubmatch(index); len(matches) > 2 {
+		// Return just the symbol part
+		return "^" + matches[2]
+	}
+
+	// Otherwise map known indices
+	switch strings.ToLower(strings.TrimSpace(index)) {
+	case "s&p 500", "s&p500", "sp500":
+		return "^GSPC"
+	case "dow jones", "dow", "djia":
+		return "^DJI"
+	case "nasdaq", "nasdaq composite":
+		return "^IXIC"
+	case "russell 2000":
+		return "^RUT"
+	case "vix", "volatility index":
+		return "^VIX"
+	default:
+		// If it's already a Yahoo symbol (starts with ^) or we don't recognize it, return as is
+		if strings.HasPrefix(index, "^") {
+			return index
+		}
+		return index
+	}
 }
 
 // MonitorStocks continually monitors stock prices and performs actions based on price movements

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -19,18 +20,36 @@ type LLMConfig struct {
 	Temperature  float64
 	TimeoutSecs  int
 	SystemPrompt string
+	Provider     string // "openai" or "anthropic"
 }
 
 // DefaultLLMConfig returns a default LLM configuration
 func DefaultLLMConfig() LLMConfig {
+	// Default to OpenAI
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	provider := "openai"
+	baseURL := "https://api.openai.com/v1/chat/completions"
+	model := "gpt-3.5-turbo"
+	
+	// Check for Anthropic API key environment variable
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" && anthropicKey != "" {
+		// Only use Anthropic if OpenAI key is not set but Anthropic key is
+		apiKey = anthropicKey
+		provider = "anthropic"
+		baseURL = "https://api.anthropic.com/v1/messages"
+		model = "claude-3-sonnet-20240229"
+	}
+	
 	return LLMConfig{
-		APIKey:       os.Getenv("OPENAI_API_KEY"),
-		BaseURL:      "https://api.openai.com/v1/chat/completions",
-		Model:        "gpt-3.5-turbo",
+		APIKey:       apiKey,
+		BaseURL:      baseURL,
+		Model:        model,
 		MaxTokens:    2000,
 		Temperature:  0.7,
 		TimeoutSecs:  30,
 		SystemPrompt: DefaultSystemPrompt,
+		Provider:     provider,
 	}
 }
 
@@ -46,16 +65,16 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-// ChatRequest represents a request to the chat completions API
-type ChatRequest struct {
+// OpenAIChatRequest represents a request to the OpenAI chat completions API
+type OpenAIChatRequest struct {
 	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Temperature float64   `json:"temperature"`
 }
 
-// ChatResponse represents a response from the chat completions API
-type ChatResponse struct {
+// OpenAIChatResponse represents a response from the OpenAI chat completions API
+type OpenAIChatResponse struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	Created int    `json:"created"`
@@ -67,6 +86,31 @@ type ChatResponse struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
+}
+
+// AnthropicChatRequest represents a request to the Anthropic chat API
+type AnthropicChatRequest struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	MaxTokens   int       `json:"max_tokens,omitempty"`
+	Temperature float64   `json:"temperature"`
+}
+
+// AnthropicChatResponse represents a response from the Anthropic chat API
+type AnthropicChatResponse struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	Model       string    `json:"model"`
+	StopReason  string    `json:"stop_reason"`
+	StopSequence string   `json:"stop_sequence"`
+	Usage struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
 }
 
@@ -87,7 +131,17 @@ func (c *LLMClient) GenerateResponse(ctx context.Context, messages []Message) (s
 		messages = append([]Message{{Role: "system", Content: c.config.SystemPrompt}}, messages...)
 	}
 
-	chatReq := ChatRequest{
+	if c.config.Provider == "anthropic" {
+		return c.generateAnthropicResponse(ctx, messages)
+	}
+	
+	// Default to OpenAI
+	return c.generateOpenAIResponse(ctx, messages)
+}
+
+// generateOpenAIResponse sends a request to the OpenAI API and returns the response
+func (c *LLMClient) generateOpenAIResponse(ctx context.Context, messages []Message) (string, error) {
+	chatReq := OpenAIChatRequest{
 		Model:       c.config.Model,
 		Messages:    messages,
 		MaxTokens:   c.config.MaxTokens,
@@ -109,7 +163,7 @@ func (c *LLMClient) GenerateResponse(ctx context.Context, messages []Message) (s
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("error sending request to LLM API: %w", err)
+		return "", fmt.Errorf("error sending request to OpenAI API: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -118,19 +172,77 @@ func (c *LLMClient) GenerateResponse(ctx context.Context, messages []Message) (s
 		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
 			return "", fmt.Errorf("error decoding error response: %w", err)
 		}
-		return "", fmt.Errorf("LLM API returned non-OK status: %d, error: %v", resp.StatusCode, errResp)
+		return "", fmt.Errorf("OpenAI API returned non-OK status: %d, error: %v", resp.StatusCode, errResp)
 	}
 
-	var chatResp ChatResponse
+	var chatResp OpenAIChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
 		return "", fmt.Errorf("error decoding response: %w", err)
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("LLM API returned no choices")
+		return "", fmt.Errorf("OpenAI API returned no choices")
 	}
 
 	return chatResp.Choices[0].Message.Content, nil
+}
+
+// generateAnthropicResponse sends a request to the Anthropic API and returns the response
+func (c *LLMClient) generateAnthropicResponse(ctx context.Context, messages []Message) (string, error) {
+	// Convert to Anthropic format
+	chatReq := AnthropicChatRequest{
+		Model:       c.config.Model,
+		Messages:    messages,
+		MaxTokens:   c.config.MaxTokens,
+		Temperature: c.config.Temperature,
+	}
+
+	jsonData, err := json.Marshal(chatReq)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.config.BaseURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.config.APIKey)
+	req.Header.Set("anthropic-version", "2023-12-15")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error sending request to Anthropic API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+			return "", fmt.Errorf("error decoding error response: %w", err)
+		}
+		return "", fmt.Errorf("Anthropic API returned non-OK status: %d, error: %v", resp.StatusCode, errResp)
+	}
+
+	var chatResp AnthropicChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return "", fmt.Errorf("error decoding response: %w", err)
+	}
+
+	// Extract text from the content
+	if len(chatResp.Content) == 0 {
+		return "", fmt.Errorf("Anthropic API returned no content")
+	}
+
+	var result strings.Builder
+	for _, part := range chatResp.Content {
+		if part.Type == "text" {
+			result.WriteString(part.Text)
+		}
+	}
+
+	return result.String(), nil
 }
 
 // DefaultSystemPrompt is the default system prompt for the financial assistant
