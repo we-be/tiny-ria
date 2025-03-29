@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quotron Agent Terminal</title>
+    <title>Responsive Investment Assistant</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide-icons@0.300.0/dist/css/lucide.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -14,8 +14,8 @@
     <div class="app-container">
         <header class="app-header">
             <div class="logo">
-                <img src="/static/img/logo.svg" alt="Quotron" class="logo-img">
-                <h1>QUOTRON_TERMINAL</h1>
+                <img src="/static/img/logo.svg" alt="RIA" class="logo-img">
+                <h1>Investment Assistant</h1>
             </div>
             <div class="header-controls">
                 <button id="clear-chat" class="btn btn-secondary">
@@ -37,7 +37,7 @@
                 <div class="monitored-symbols">
                     <h3><i data-lucide="activity" size="14"></i> Monitored Symbols</h3>
                     <div id="monitored-list">
-                        <p class="empty-state">No symbols monitored yet<span class="terminal-cursor"></span></p>
+                        <p class="empty-state">No symbols monitored yet</p>
                     </div>
                     <div class="add-symbol">
                         <input type="text" id="symbol-input" placeholder="Add symbol (e.g., AAPL)">
@@ -62,7 +62,6 @@
                 
                 <div class="chat-input-container">
                     <form id="chat-form">
-                        <span class="input-prefix cmd-prompt">$</span>
                         <textarea 
                             id="chat-input" 
                             placeholder="Type your query..." 

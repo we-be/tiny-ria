@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
         websocket: null,
         messageHistory: [],
-        theme: localStorage.getItem('theme') || 'light',
+        theme: localStorage.getItem('theme') || 'dark',
         monitoredSymbols: JSON.parse(localStorage.getItem('monitoredSymbols') || '[]'),
         marketIndices: [],
         currentChart: null,
@@ -153,16 +153,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const priceDiv = symbolElement.querySelector('.symbol-price');
                 const changeDiv = symbolElement.querySelector('.symbol-change');
                 
+                // Update price directly
                 priceDiv.textContent = `$${data.price.toFixed(2)}`;
-                changeDiv.textContent = `${data.changePercent >= 0 ? '+' : ''}${data.changePercent.toFixed(2)}%`;
+                
+                // Add change with direction indicator
+                const changeText = `${data.changePercent >= 0 ? '↑' : '↓'} ${Math.abs(data.changePercent).toFixed(2)}%`;
+                changeDiv.textContent = changeText;
+                
                 changeDiv.classList.remove('positive', 'negative');
                 changeDiv.classList.add(data.changePercent >= 0 ? 'positive' : 'negative');
-                
-                // Briefly highlight to show it was updated
-                symbolElement.classList.add('updated');
-                setTimeout(() => {
-                    symbolElement.classList.remove('updated');
-                }, 1000);
                 break;
             }
         }
@@ -198,7 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
             valueDiv.textContent = index.value.toFixed(2);
             
             const changePercent = index.percent || (index.change / index.value * 100).toFixed(2);
-            changeDiv.textContent = `${index.change >= 0 ? '+' : ''}${index.change.toFixed(2)} (${changePercent}%)`;
+            const changeText = `${index.change >= 0 ? '↑' : '↓'} ${Math.abs(index.change).toFixed(2)} (${Math.abs(changePercent).toFixed(2)}%)`;
+            changeDiv.textContent = changeText;
             changeDiv.classList.add(index.change >= 0 ? 'positive' : 'negative');
             
             elements.marketIndices.appendChild(clone);
@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.chatMessages.appendChild(messageElement);
         scrollToBottom();
         
-        // Simple text without prefix
+        // Plain text content
         const contentDiv = messageElement.querySelector('.message-content');
         if (contentDiv) {
             contentDiv.textContent = content;
@@ -358,17 +358,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // Remove typing indicator if present
         removeTypingIndicator();
         
-        // Create a very simple message element directly instead of using templates
+        // Create a message element
         const messageElement = document.createElement('div');
         messageElement.className = 'message assistant';
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-        contentDiv.innerHTML = `<span class="cmd-prompt">></span> ${marked.parse(content)}`;
         
         const timeDiv = document.createElement('div');
         timeDiv.className = 'message-time';
         timeDiv.textContent = new Date().toLocaleTimeString();
+        
+        // Format content with Markdown
+        contentDiv.innerHTML = marked.parse(content);
         
         // Append the message elements
         messageElement.appendChild(contentDiv);
@@ -507,17 +509,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 return div;
             }
             
-            // Format content with Markdown for assistant and system messages
-            if (type === 'assistant' || type === 'system') {
-                contentDiv.innerHTML = marked.parse(content);
-            } else {
-                contentDiv.textContent = content;
-            }
-            
             // Add timestamp
             if (timeDiv) {
                 const now = new Date();
                 timeDiv.textContent = now.toLocaleTimeString();
+            }
+            
+            // For user messages, error messages, and system messages add content directly
+            if (type === 'user' || type === 'error' || type === 'system') {
+                contentDiv.textContent = content;
             }
             
             return clone;
@@ -537,19 +537,10 @@ document.addEventListener('DOMContentLoaded', () => {
         removeTypingIndicator();
         
         if (status === 'start') {
-            // Create typing indicator with terminal styling
+            // Create simple typing indicator
             const indicator = document.createElement('div');
             indicator.className = 'message assistant typing-indicator';
-            indicator.innerHTML = `
-                <div class="message-content">
-                    <span class="cmd-prompt">></span> Agent is thinking
-                    <div class="dots">
-                        <div class="dot"></div>
-                        <div class="dot"></div>
-                        <div class="dot"></div>
-                    </div>
-                </div>
-            `;
+            indicator.innerHTML = 'Processing...';
             
             if (elements.chatMessages) {
                 elements.chatMessages.appendChild(indicator);
@@ -579,7 +570,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         elements.chatMessages.innerHTML = '';
         state.messageHistory = [];
-        addSystemMessage('Terminal cleared. Session reset.');
+        addSystemMessage('Chat cleared. Session reset.');
     }
 
     // Toggle theme
@@ -592,10 +583,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Apply current theme
     function applyTheme() {
         if (state.theme === 'dark') {
-            document.body.classList.add('dark-theme');
+            document.body.classList.remove('light-theme');
             elements.toggleTheme.textContent = '☀️';
         } else {
-            document.body.classList.remove('dark-theme');
+            document.body.classList.add('light-theme');
             elements.toggleTheme.textContent = '🌙';
         }
     }
@@ -639,7 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        // Clear the list once - no duplicates
+        // Clear the list
         elements.monitoredList.innerHTML = '';
         
         if (state.monitoredSymbols.length === 0) {
@@ -650,9 +641,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        // Create a simple method of monitoring symbols without using templates
+        // Create elements for each symbol
         state.monitoredSymbols.forEach(symbol => {
-            // Create a direct DOM element instead of using templates
+            // Create a direct DOM element
             const symbolDiv = document.createElement('div');
             symbolDiv.className = 'monitored-symbol';
             
@@ -669,7 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const removeBtn = document.createElement('button');
             removeBtn.className = 'remove-symbol';
-            removeBtn.innerHTML = '<i data-lucide="x" size="12"></i>';
+            removeBtn.innerHTML = '×';
             removeBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -684,17 +675,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Add the complete symbol div to the monitored list
             elements.monitoredList.appendChild(symbolDiv);
-            
-            // Initialize Lucide icons if available
-            if (typeof lucide !== 'undefined' && lucide.createIcons) {
-                lucide.createIcons({
-                    attrs: {
-                        'stroke-width': 1.5,
-                        'stroke': 'currentColor'
-                    },
-                    elements: symbolDiv.querySelectorAll('[data-lucide]')
-                });
-            }
             
             // Fetch latest price data
             fetchSymbolPrice(symbol);
@@ -762,75 +742,46 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleAlert(alert) {
         console.log('Alert received:', alert);
         
-        // Create alert element with cyberpunk-terminal styling
-        if (!templates.alert) {
-            console.error('Alert template not found');
-            return;
-        }
+        // Create alert element
+        const alertElement = templates.alert.content.cloneNode(true).firstElementChild;
+        const symbolDiv = alertElement.querySelector('.alert-symbol');
+        const priceDiv = alertElement.querySelector('.alert-price');
+        const changeDiv = alertElement.querySelector('.alert-change');
+        const closeBtn = alertElement.querySelector('.alert-close');
         
-        try {
-            const alertElement = templates.alert.content.cloneNode(true).firstElementChild;
-            if (!alertElement) {
-                console.error('Failed to clone alert template');
-                return;
+        symbolDiv.textContent = alert.symbol;
+        priceDiv.textContent = `$${alert.price.toFixed(2)}`;
+        
+        const directionArrow = alert.percentChange >= 0 ? '↑' : '↓';
+        const changeText = `${directionArrow} ${Math.abs(alert.percentChange).toFixed(2)}% from $${alert.previousPrice.toFixed(2)}`;
+        changeDiv.textContent = changeText;
+        changeDiv.classList.add(alert.percentChange >= 0 ? 'positive' : 'negative');
+        
+        // Set up close button
+        closeBtn.addEventListener('click', () => {
+            document.body.removeChild(alertElement);
+        });
+        
+        // Add to DOM
+        document.body.appendChild(alertElement);
+        alertElement.style.display = 'block';
+        
+        // Auto-remove after 10 seconds
+        setTimeout(() => {
+            if (document.body.contains(alertElement)) {
+                document.body.removeChild(alertElement);
             }
-            
-            const symbolDiv = alertElement.querySelector('.alert-symbol');
-            const priceDiv = alertElement.querySelector('.alert-price');
-            const changeDiv = alertElement.querySelector('.alert-change');
-            const closeBtn = alertElement.querySelector('.alert-close');
-            
-            if (symbolDiv) symbolDiv.innerHTML = `<span class="cmd-prompt">$</span> ${alert.symbol}`;
-            if (priceDiv) priceDiv.textContent = `$${alert.price.toFixed(2)}`;
-            
-            if (changeDiv) {
-                const directionArrow = alert.percentChange >= 0 ? '↑' : '↓';
-                const changeText = `${directionArrow} ${Math.abs(alert.percentChange).toFixed(2)}% from $${alert.previousPrice.toFixed(2)}`;
-                changeDiv.textContent = changeText;
-                changeDiv.classList.add(alert.percentChange >= 0 ? 'positive' : 'negative');
-            }
-            
-            // Set up close button with event handling
-            if (closeBtn) {
-                closeBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    document.body.removeChild(alertElement);
-                });
-            }
-            
-            // Add to DOM
-            document.body.appendChild(alertElement);
-            alertElement.style.display = 'block';
-            
-            // Add glitch animation on appearance
-            setTimeout(() => {
-                alertElement.classList.add('glitch');
-                setTimeout(() => alertElement.classList.remove('glitch'), 500);
-            }, 100);
-            
-            // Auto-remove after 10 seconds
-            setTimeout(() => {
-                if (document.body.contains(alertElement)) {
-                    document.body.removeChild(alertElement);
-                }
-            }, 10000);
-            
-            // Also add as a message in the chat with terminal styling
-            const alertContent = `**📊 PRICE ALERT**\n\n**${alert.symbol}** has ${alert.direction} by **${Math.abs(alert.percentChange).toFixed(2)}%**\nPrice: $${alert.previousPrice.toFixed(2)} → $${alert.price.toFixed(2)}\nVolume: ${alert.volume.toLocaleString()}`;
-            
-            if (elements.chatMessages) {
-                const messageElement = createMessageElement('alert', alertContent);
-                const contentDiv = messageElement.querySelector('.message-content');
-                if (contentDiv) {
-                    contentDiv.innerHTML = marked.parse(alertContent);
-                }
-                
-                elements.chatMessages.appendChild(messageElement);
-                scrollToBottom();
-            }
-        } catch (err) {
-            console.error('Error creating alert:', err);
-        }
+        }, 10000);
+        
+        // Also add as a message in the chat
+        const alertContent = `**📊 PRICE ALERT**\n\n**${alert.symbol}** has ${alert.direction} by **${Math.abs(alert.percentChange).toFixed(2)}%**\nPrice: $${alert.previousPrice.toFixed(2)} → $${alert.price.toFixed(2)}\nVolume: ${alert.volume.toLocaleString()}`;
+        
+        const messageElement = createMessageElement('alert', alertContent);
+        const contentDiv = messageElement.querySelector('.message-content');
+        contentDiv.innerHTML = marked.parse(alertContent);
+        
+        elements.chatMessages.appendChild(messageElement);
+        scrollToBottom();
     }
 
     // Visualize financial data from message content
@@ -942,6 +893,7 @@ document.addEventListener('DOMContentLoaded', () => {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false, // Disable animations
                 plugins: {
                     legend: {
                         display: false
@@ -980,7 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const avgPriceHeader = avgPriceCard.querySelector('.card-header');
         const avgPriceValue = avgPriceCard.querySelector('.card-value');
         
-        avgPriceHeader.textContent = 'Average Price';
+        avgPriceHeader.textContent = 'AVG PRICE';
         avgPriceValue.textContent = `$${avgPrice.toFixed(2)}`;
         
         elements.dataCards.appendChild(avgPriceCard);
@@ -991,8 +943,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const avgChangeValue = avgChangeCard.querySelector('.card-value');
         const avgChangeEl = avgChangeCard.querySelector('.card-change');
         
-        avgChangeHeader.textContent = 'Average Change';
-        avgChangeValue.textContent = `${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}%`;
+        avgChangeHeader.textContent = 'AVG CHANGE';
+        
+        const directionArrow = avgChange >= 0 ? '↑' : '↓';
+        avgChangeValue.textContent = `${directionArrow} ${Math.abs(avgChange).toFixed(2)}%`;
         avgChangeEl.classList.add(avgChange >= 0 ? 'positive' : 'negative');
         
         elements.dataCards.appendChild(avgChangeCard);
@@ -1006,9 +960,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const gainerValue = gainerCard.querySelector('.card-value');
         const gainerChange = gainerCard.querySelector('.card-change');
         
-        gainerHeader.textContent = 'Top Performer';
+        gainerHeader.textContent = 'TOP PERFORMER';
         gainerValue.textContent = highestGainer.symbol;
-        gainerChange.textContent = `${highestGainer.changePercent >= 0 ? '+' : ''}${highestGainer.changePercent.toFixed(2)}%`;
+        
+        const gainerArrow = highestGainer.changePercent >= 0 ? '↑' : '↓';
+        gainerChange.textContent = `${gainerArrow} ${Math.abs(highestGainer.changePercent).toFixed(2)}%`;
         gainerChange.classList.add(highestGainer.changePercent >= 0 ? 'positive' : 'negative');
         
         elements.dataCards.appendChild(gainerCard);
@@ -1018,7 +974,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const volumeHeader = volumeCard.querySelector('.card-header');
         const volumeValue = volumeCard.querySelector('.card-value');
         
-        volumeHeader.textContent = 'Total Volume';
+        volumeHeader.textContent = 'TOTAL VOLUME';
         
         // Try to parse volume as number
         const totalVolume = data.reduce((sum, item) => {
@@ -1043,8 +999,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const placeholderHeader = placeholderCard.querySelector('.card-header');
             const placeholderValue = placeholderCard.querySelector('.card-value');
             
-            placeholderHeader.textContent = 'No Data Yet';
-            placeholderValue.textContent = 'Ask about markets to see data';
+            placeholderHeader.textContent = 'NO DATA YET';
+            placeholderValue.textContent = 'Ask about markets';
             
             elements.dataCards.appendChild(placeholderCard);
         }
@@ -1061,11 +1017,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (elements.chatMessages) {
             elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
         }
-    }
-
-    // Simple static cursor
-    function addBlinkingCursor() {
-        // Function simplified - no cursor animation for cleaner design
     }
 
     // Initialize app

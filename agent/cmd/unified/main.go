@@ -1012,6 +1012,9 @@ func (s *WebServer) processUserMessage(conn *ThreadSafeConn, content string) {
 
 // processCommand handles special commands
 func (s *WebServer) processCommand(conn *ThreadSafeConn, command string, data map[string]interface{}) {
+	// Always log the command data for debugging
+	s.logger.Printf("Processing command: %s with data: %v", command, data)
+	
 	switch command {
 	case "monitor":
 		// Extract symbols from data

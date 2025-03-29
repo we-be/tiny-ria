@@ -94,3 +94,4 @@ quotron/*/run_*.sh
 context.txt
 quotron/diagnostics_report.md
 quotron/health_report.json
+*/bin/ria

@@ -14,6 +14,9 @@ mkdir -p cmd/unified/static/js
 mkdir -p cmd/unified/static/img
 mkdir -p cmd/unified/templates
 
+# Create logs directory for RIA
+mkdir -p /tmp/ria_logs
+
 # Build the unified CLI
 echo "Building ria..."
 go build -o bin/ria cmd/unified/main.go cmd/unified/websocket_fix.go
