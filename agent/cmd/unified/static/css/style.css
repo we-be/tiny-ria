@@ -181,10 +181,10 @@ body {
 
 /* Market indices */
 .market-index {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem 0.75rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    padding: 0.75rem;
     margin-bottom: 0.5rem;
     border-radius: var(--border-radius);
     background-color: var(--background-color);
@@ -195,10 +195,18 @@ body {
 
 .index-name {
     font-weight: 500;
+    grid-column: 1;
 }
 
 .index-value {
     font-weight: 600;
+    grid-column: 2;
+    text-align: right;
+}
+
+.index-change {
+    grid-column: 3;
+    text-align: right;
 }
 
 .index-change.positive {
@@ -211,10 +219,10 @@ body {
 
 /* Monitored symbols */
 .monitored-symbol {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem 0.75rem;
+    display: grid;
+    grid-template-columns: 0.8fr 1fr 0.8fr 0.4fr;
+    gap: 8px;
+    padding: 0.75rem;
     margin-bottom: 0.5rem;
     border-radius: var(--border-radius);
     background-color: var(--background-color);
@@ -225,10 +233,18 @@ body {
 
 .symbol-name {
     font-weight: 500;
+    grid-column: 1;
 }
 
 .symbol-price {
     font-weight: 600;
+    grid-column: 2;
+    text-align: right;
+}
+
+.symbol-change {
+    grid-column: 3;
+    text-align: right;
 }
 
 .symbol-change.positive {

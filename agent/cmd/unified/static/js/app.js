@@ -146,6 +146,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Handle stock/crypto price data update
     function handlePriceData(data) {
+        // Log received data for debugging
+        console.log("Received price data:", data);
+        
+        // Ensure we have a valid change percent value
+        const changePercent = typeof data.changePercent === 'number' ? data.changePercent : 0;
+        
         // Update UI for the specific symbol
         const allSymbols = elements.monitoredList.querySelectorAll('.monitored-symbol');
         for (const symbolElement of allSymbols) {
@@ -157,12 +163,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Update price directly, no animation
                 priceDiv.textContent = `$${data.price.toFixed(2)}`;
                 
-                // Add change with direction indicator
-                const changeText = `${data.changePercent >= 0 ? '↑' : '↓'} ${Math.abs(data.changePercent).toFixed(2)}%`;
-                changeDiv.textContent = changeText;
-                
-                changeDiv.classList.remove('positive', 'negative');
-                changeDiv.classList.add(data.changePercent >= 0 ? 'positive' : 'negative');
+                // Only show change if we have a valid non-zero value
+                if (changePercent !== 0) {
+                    // Add change with direction indicator
+                    const changeText = `${changePercent >= 0 ? '↑' : '↓'} ${Math.abs(changePercent).toFixed(2)}%`;
+                    changeDiv.textContent = changeText;
+                    
+                    changeDiv.classList.remove('positive', 'negative');
+                    changeDiv.classList.add(changePercent >= 0 ? 'positive' : 'negative');
+                } else {
+                    // Just show a dash for no change
+                    changeDiv.textContent = '--';
+                    changeDiv.classList.remove('positive', 'negative');
+                }
                 break;
             }
         }
@@ -249,10 +262,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Quick action buttons
+        // Quick action buttons with enhanced UX
         elements.quickActionBtns.forEach(btn => {
+            // Add tooltip showing the full query 
+            btn.setAttribute('title', btn.dataset.query);
+            
+            // Add hover effect 
+            btn.addEventListener('mouseenter', () => {
+                btn.style.borderColor = 'var(--primary-color)';
+                btn.style.backgroundColor = 'var(--card-background)';
+            });
+            
+            btn.addEventListener('mouseleave', () => {
+                btn.style.borderColor = 'var(--border-color)';
+                btn.style.backgroundColor = 'var(--background-color)';
+            });
+            
             btn.addEventListener('click', () => {
                 const query = btn.dataset.query;
+                // Show brief highlight effect when clicked
+                btn.style.backgroundColor = 'var(--primary-color)';
+                btn.style.color = 'white';
+                setTimeout(() => {
+                    btn.style.backgroundColor = 'var(--background-color)';
+                    btn.style.color = 'var(--text-color)';
+                }, 200);
                 sendUserMessage(query);
             });
         });
@@ -689,6 +723,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const changeDiv = document.createElement('div');
             changeDiv.className = 'symbol-change';
+            // Set initial placeholder with dash to avoid 0% display
+            changeDiv.textContent = '--';
             
             const removeBtn = document.createElement('button');
             removeBtn.className = 'remove-symbol';

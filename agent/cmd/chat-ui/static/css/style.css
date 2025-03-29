@@ -381,6 +381,131 @@ body {
     font-family: var(--font-sans);
 }
 
+/* Market indices and sidebar elements */
+.sidebar {
+    width: 280px;
+    padding: 1rem;
+    background-color: var(--card-background);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    overflow-y: auto;
+}
+
+.sidebar h3 {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--primary-color);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.market-overview, .monitored-symbols, .quick-actions {
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.market-index {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: var(--border-radius);
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+}
+
+.index-name {
+    font-weight: 500;
+    grid-column: 1;
+}
+
+.index-value {
+    font-weight: 600;
+    grid-column: 2;
+    text-align: right;
+}
+
+.index-change {
+    grid-column: 3;
+    text-align: right;
+}
+
+.index-change.positive {
+    color: var(--success-color);
+}
+
+.index-change.negative {
+    color: var(--danger-color);
+}
+
+.monitored-symbol {
+    display: grid;
+    grid-template-columns: 0.8fr 1fr 0.8fr 0.4fr;
+    gap: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: var(--border-radius);
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+}
+
+.symbol-name {
+    font-weight: 500;
+    grid-column: 1;
+}
+
+.symbol-price {
+    font-weight: 600;
+    grid-column: 2;
+    text-align: right;
+}
+
+.symbol-change {
+    grid-column: 3;
+    text-align: right;
+}
+
+.symbol-change.positive {
+    color: var(--success-color);
+}
+
+.symbol-change.negative {
+    color: var(--danger-color);
+}
+
+.quick-action-btn {
+    display: block;
+    width: 100%;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    text-align: left;
+    position: relative;
+}
+
+.quick-action-btn:hover {
+    border-color: var(--primary-color);
+    background-color: var(--card-background);
+}
+
 /* Empty states */
 .empty-state {
     text-align: center;
