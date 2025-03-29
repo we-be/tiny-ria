@@ -32,8 +32,13 @@ func NewAgentAssistant(agent *Agent, llmConfig LLMConfig) *AgentAssistant {
 
 // Chat performs a single chat interaction
 func (a *AgentAssistant) Chat(ctx context.Context, userMessage string) (string, error) {
-	// Add user message to history
-	a.history.AddUserMessage(userMessage)
+	// Check if this is a system message (internal tool use)
+	isSystemMessage := strings.HasPrefix(userMessage, "__SYSTEM__:")
+	
+	if !isSystemMessage {
+		// Add regular user message to history
+		a.history.AddUserMessage(userMessage)
+	}
 
 	// Check for commands that need direct processing before sending to LLM
 	if isDirectCommand(userMessage) {
@@ -59,7 +64,7 @@ STOCKS: [comma-separated list of stock symbols to fetch, or "none"]
 CRYPTOS: [comma-separated list of crypto symbols to fetch, or "none"]
 INDICES: [comma-separated list of market indices to fetch, or "none"]
 ACTIONS: [brief description of the analysis steps to take]`, userMessage)
-
+	
 	// Get initial response for planning
 	planMessages := []Message{
 		{Role: "system", Content: "You are a financial data planning assistant. Analyze user requests and determine what financial data to retrieve."},
@@ -77,6 +82,11 @@ ACTIONS: [brief description of the analysis steps to take]`, userMessage)
 	// Fetch any required financial data
 	dataContext, err := a.fetchFinancialData(ctx, stocks, cryptos, indices)
 	if err != nil {
+		// If there's an error and this isn't already a system message, create a system message to handle it
+		if !isSystemMessage && (len(stocks) > 0 || len(cryptos) > 0 || len(indices) > 0) {
+			errorMsg := fmt.Sprintf("__SYSTEM__: Error fetching data: %v. Try to fix the symbols and fetch again.", err)
+			return a.Chat(ctx, errorMsg) // Recursively call Chat with a system message
+		}
 		// Continue even with partial data
 		dataContext += "\nNote: Some data could not be retrieved due to errors."
 	}
@@ -92,15 +102,24 @@ Based on this information, please provide a comprehensive and insightful respons
 
 	// Add the enhanced prompt to history and get final response
 	finalMessages := a.history.GetMessages()
-	finalMessages[len(finalMessages)-1] = Message{Role: "user", Content: enhancedPrompt}
+	if len(finalMessages) > 0 {
+		// If we already have messages in history, replace the last one
+		finalMessages[len(finalMessages)-1] = Message{Role: "user", Content: enhancedPrompt}
+	} else {
+		// Otherwise just add it
+		finalMessages = append(finalMessages, Message{Role: "user", Content: enhancedPrompt})
+	}
 	
 	response, err := a.llmClient.GenerateResponse(ctx, finalMessages)
 	if err != nil {
 		return "", fmt.Errorf("error generating response: %w", err)
 	}
 
-	// Add assistant response to history
-	a.history.AddAssistantMessage(response)
+	// Only add to chat history if this wasn't a system message
+	if !isSystemMessage {
+		// Add assistant response to history
+		a.history.AddAssistantMessage(response)
+	}
 	
 	return response, nil
 }
@@ -221,6 +240,7 @@ func (a *AgentAssistant) extractSymbolsFromPlan(planResponse string) ([]string, 
 func (a *AgentAssistant) fetchFinancialData(ctx context.Context, stocks, cryptos, indices []string) (string, error) {
 	var result strings.Builder
 	var errs []string
+	var invalidSymbols []string
 	
 	// Fetch stock data
 	if len(stocks) > 0 {
@@ -241,11 +261,13 @@ func (a *AgentAssistant) fetchFinancialData(ctx context.Context, stocks, cryptos
 						formatNumber(quote.Volume), quote.Timestamp.Format(time.RFC3339)))
 				} else {
 					result.WriteString(fmt.Sprintf("| %s | N/A | N/A | N/A | N/A | N/A |\n", symbol))
+					invalidSymbols = append(invalidSymbols, symbol)
 				}
 			}
 			result.WriteString("\n")
 		} else {
 			result.WriteString("No stock data available\n\n")
+			invalidSymbols = append(invalidSymbols, stocks...)
 		}
 	}
 	
@@ -268,11 +290,13 @@ func (a *AgentAssistant) fetchFinancialData(ctx context.Context, stocks, cryptos
 						formatNumber(quote.Volume), quote.Timestamp.Format(time.RFC3339)))
 				} else {
 					result.WriteString(fmt.Sprintf("| %s | N/A | N/A | N/A | N/A | N/A |\n", symbol))
+					invalidSymbols = append(invalidSymbols, symbol)
 				}
 			}
 			result.WriteString("\n")
 		} else {
 			result.WriteString("No cryptocurrency data available\n\n")
+			invalidSymbols = append(invalidSymbols, cryptos...)
 		}
 	}
 	
@@ -295,16 +319,34 @@ func (a *AgentAssistant) fetchFinancialData(ctx context.Context, stocks, cryptos
 						data.Timestamp.Format(time.RFC3339)))
 				} else {
 					result.WriteString(fmt.Sprintf("| %s | N/A | N/A | N/A | N/A |\n", symbol))
+					invalidSymbols = append(invalidSymbols, symbol)
 				}
 			}
 			result.WriteString("\n")
 		} else {
 			result.WriteString("No market index data available\n\n")
+			invalidSymbols = append(invalidSymbols, indices...)
 		}
 	}
 	
+	// Add suggestions for invalid symbols
+	if len(invalidSymbols) > 0 {
+		result.WriteString("## Data Retrieval Issues\n\n")
+		result.WriteString("There were issues retrieving data for the following symbols:\n")
+		for _, symbol := range invalidSymbols {
+			result.WriteString(fmt.Sprintf("- %s\n", symbol))
+		}
+		
+		result.WriteString("\nPossible fixes:\n")
+		result.WriteString("- Check for typos in the symbols\n")
+		result.WriteString("- For stocks, use standard ticker symbols (e.g., AAPL, MSFT)\n")
+		result.WriteString("- For cryptocurrencies, add '-USD' suffix (e.g., BTC-USD, ETH-USD)\n")
+		result.WriteString("- For indices, use standard names (e.g., S&P 500, Dow Jones, NASDAQ)\n")
+		result.WriteString("\n")
+	}
+	
 	if len(errs) > 0 {
-		return result.String(), fmt.Errorf(strings.Join(errs, "; "))
+		return result.String(), fmt.Errorf("%s. Invalid symbols: %s", strings.Join(errs, "; "), strings.Join(invalidSymbols, ", "))
 	}
 	
 	return result.String(), nil
