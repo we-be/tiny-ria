@@ -45,6 +45,9 @@ document.addEventListener('DOMContentLoaded', () => {
         setupEventListeners();
         applyTheme();
         updateDataPanel();
+        
+        // Add a blinking cursor to the chat input
+        addBlinkingCursor();
 
         // Auto-resize textarea as content grows
         autoResizeTextarea(elements.chatInput);
@@ -321,9 +324,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add a user message to the chat
     function addUserMessage(content) {
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         const messageElement = createMessageElement('user', content);
         elements.chatMessages.appendChild(messageElement);
         scrollToBottom();
+        
+        // Add prefix to make it look command-like
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = `<span class="cmd-prompt">$</span> ${content}`;
+        }
         
         // Save to history
         state.messageHistory.push({
@@ -335,11 +349,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add an assistant message to the chat
     function addAssistantMessage(content) {
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         // Remove typing indicator if present
         removeTypingIndicator();
         
-        const messageElement = createMessageElement('assistant', content);
+        // Create a very simple message element directly instead of using templates
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message assistant';
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        contentDiv.innerHTML = `<span class="cmd-prompt">></span> ${marked.parse(content)}`;
+        
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = new Date().toLocaleTimeString();
+        
+        // Append the message elements
+        messageElement.appendChild(contentDiv);
+        messageElement.appendChild(timeDiv);
         elements.chatMessages.appendChild(messageElement);
+        
         scrollToBottom();
         
         // Save to history
@@ -352,8 +386,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add a system message to the chat
     function addSystemMessage(content) {
+        // Check if chat messages container exists
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         const messageElement = createMessageElement('system', content);
         elements.chatMessages.appendChild(messageElement);
+        
+        // Add terminal prefix to make it look like a system message
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = `<span class="cmd-prompt">#</span> ${content}`;
+        }
+        
         scrollToBottom();
         
         // Save to history
@@ -366,11 +413,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add an error message to the chat
     function addErrorMessage(content) {
+        // Check if chat messages container exists
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         // Remove typing indicator if present
         removeTypingIndicator();
         
         const messageElement = createMessageElement('error', content);
         elements.chatMessages.appendChild(messageElement);
+        
+        // Add error prefix
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = `<span class="cmd-prompt">!</span> ${content}`;
+        }
+        
         scrollToBottom();
         
         // Save to history
@@ -383,25 +443,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Create a message element
     function createMessageElement(type, content) {
-        const clone = templates.message.content.cloneNode(true);
-        const messageDiv = clone.querySelector('.message');
-        const contentDiv = clone.querySelector('.message-content');
-        const timeDiv = clone.querySelector('.message-time');
-        
-        messageDiv.classList.add(type);
-        
-        // Format content with Markdown for assistant and system messages
-        if (type === 'assistant' || type === 'system') {
-            contentDiv.innerHTML = marked.parse(content);
-        } else {
-            contentDiv.textContent = content;
+        // Check if template exists
+        if (!templates.message) {
+            console.error('Message template not found');
+            // Create a simple message element as fallback
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.innerHTML = `<div class="message-content">${content}</div><div class="message-time">${new Date().toLocaleTimeString()}</div>`;
+            return div;
         }
         
-        // Add timestamp
-        const now = new Date();
-        timeDiv.textContent = now.toLocaleTimeString();
-        
-        return clone;
+        try {
+            const clone = templates.message.content.cloneNode(true);
+            const messageDiv = clone.querySelector('.message');
+            const contentDiv = clone.querySelector('.message-content');
+            const timeDiv = clone.querySelector('.message-time');
+            
+            if (messageDiv) messageDiv.classList.add(type);
+            
+            // Early return with fallback if contentDiv is not found
+            if (!contentDiv) {
+                console.error('Message content div not found in template clone');
+                // Create a fallback div with the content
+                const div = document.createElement('div');
+                div.className = `message ${type}`;
+                div.innerHTML = `<div class="message-content">${content}</div><div class="message-time">${new Date().toLocaleTimeString()}</div>`;
+                return div;
+            }
+            
+            // Format content with Markdown for assistant and system messages
+            if (type === 'assistant' || type === 'system') {
+                contentDiv.innerHTML = marked.parse(content);
+            } else {
+                contentDiv.textContent = content;
+            }
+            
+            // Add timestamp
+            if (timeDiv) {
+                const now = new Date();
+                timeDiv.textContent = now.toLocaleTimeString();
+            }
+            
+            return clone;
+        } catch (err) {
+            console.error('Error creating message element:', err);
+            // Create a simple message element as fallback
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.innerHTML = `<div class="message-content">${content}</div><div class="message-time">${new Date().toLocaleTimeString()}</div>`;
+            return div;
+        }
     }
 
     // Handle typing indicator
@@ -410,25 +501,33 @@ document.addEventListener('DOMContentLoaded', () => {
         removeTypingIndicator();
         
         if (status === 'start') {
-            // Create typing indicator
+            // Create typing indicator with terminal styling
             const indicator = document.createElement('div');
             indicator.className = 'message assistant typing-indicator';
             indicator.innerHTML = `
-                <div>Assistant is typing</div>
-                <div class="dots">
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                    <div class="dot"></div>
+                <div class="message-content">
+                    <span class="cmd-prompt">></span> Agent is thinking
+                    <div class="dots">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
                 </div>
             `;
             
-            elements.chatMessages.appendChild(indicator);
-            scrollToBottom();
+            if (elements.chatMessages) {
+                elements.chatMessages.appendChild(indicator);
+                scrollToBottom();
+            }
         }
     }
 
     // Remove typing indicator
     function removeTypingIndicator() {
+        if (!elements.chatMessages) {
+            return;
+        }
+        
         const indicator = elements.chatMessages.querySelector('.typing-indicator');
         if (indicator) {
             indicator.remove();
@@ -437,9 +536,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Clear chat messages
     function clearChat() {
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         elements.chatMessages.innerHTML = '';
         state.messageHistory = [];
-        addSystemMessage('Chat history cleared');
+        addSystemMessage('Terminal cleared. Session reset.');
     }
 
     // Toggle theme
@@ -494,39 +598,73 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Update monitored symbols list
     function updateMonitoredSymbols() {
+        if (!elements.monitoredList) {
+            console.error('Monitored list element not found');
+            return;
+        }
+        
+        // Clear the list once - no duplicates
         elements.monitoredList.innerHTML = '';
         
         if (state.monitoredSymbols.length === 0) {
             const emptyState = document.createElement('p');
             emptyState.className = 'empty-state';
-            emptyState.textContent = 'No symbols monitored yet';
+            emptyState.innerHTML = 'No symbols monitored yet';
             elements.monitoredList.appendChild(emptyState);
             return;
         }
         
+        // Create a simple method of monitoring symbols without using templates
         state.monitoredSymbols.forEach(symbol => {
-            const clone = templates.monitoredSymbol.content.cloneNode(true);
-            const symbolDiv = clone.querySelector('.monitored-symbol');
-            const nameDiv = clone.querySelector('.symbol-name');
-            const priceDiv = clone.querySelector('.symbol-price');
-            const changeDiv = clone.querySelector('.symbol-change');
-            const removeBtn = clone.querySelector('.remove-symbol');
+            // Create a direct DOM element instead of using templates
+            const symbolDiv = document.createElement('div');
+            symbolDiv.className = 'monitored-symbol';
             
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'symbol-name';
             nameDiv.textContent = symbol;
+            
+            const priceDiv = document.createElement('div');
+            priceDiv.className = 'symbol-price';
             priceDiv.textContent = 'Loading...';
             
-            // Set up remove button
-            removeBtn.addEventListener('click', () => {
+            const changeDiv = document.createElement('div');
+            changeDiv.className = 'symbol-change';
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-symbol';
+            removeBtn.innerHTML = '<i data-lucide="x" size="12"></i>';
+            removeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 removeMonitoredSymbol(symbol);
             });
             
-            elements.monitoredList.appendChild(clone);
+            // Append all elements to the symbol div
+            symbolDiv.appendChild(nameDiv);
+            symbolDiv.appendChild(priceDiv);
+            symbolDiv.appendChild(changeDiv);
+            symbolDiv.appendChild(removeBtn);
             
-            // Fetch latest price data from API
+            // Add the complete symbol div to the monitored list
+            elements.monitoredList.appendChild(symbolDiv);
+            
+            // Initialize Lucide icons if available
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                lucide.createIcons({
+                    attrs: {
+                        'stroke-width': 1.5,
+                        'stroke': 'currentColor'
+                    },
+                    elements: symbolDiv.querySelectorAll('[data-lucide]')
+                });
+            }
+            
+            // Fetch latest price data
             fetchSymbolPrice(symbol);
         });
     }
-
+    
     // Fetch symbol price from API via WebSocket
     function fetchSymbolPrice(symbol) {
         // Request the price data via WebSocket command
@@ -588,42 +726,75 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleAlert(alert) {
         console.log('Alert received:', alert);
         
-        // Create alert element
-        const alertElement = templates.alert.content.cloneNode(true).firstElementChild;
-        const symbolDiv = alertElement.querySelector('.alert-symbol');
-        const priceDiv = alertElement.querySelector('.alert-price');
-        const changeDiv = alertElement.querySelector('.alert-change');
-        const closeBtn = alertElement.querySelector('.alert-close');
+        // Create alert element with cyberpunk-terminal styling
+        if (!templates.alert) {
+            console.error('Alert template not found');
+            return;
+        }
         
-        symbolDiv.textContent = alert.symbol;
-        priceDiv.textContent = `$${alert.price.toFixed(2)}`;
-        
-        const changeText = `${alert.direction === 'increased' ? '+' : ''}${alert.percentChange.toFixed(2)}% from $${alert.previousPrice.toFixed(2)}`;
-        changeDiv.textContent = changeText;
-        changeDiv.classList.add(alert.percentChange >= 0 ? 'positive' : 'negative');
-        
-        // Set up close button
-        closeBtn.addEventListener('click', () => {
-            document.body.removeChild(alertElement);
-        });
-        
-        // Add to DOM
-        document.body.appendChild(alertElement);
-        alertElement.style.display = 'block';
-        
-        // Auto-remove after 10 seconds
-        setTimeout(() => {
-            if (document.body.contains(alertElement)) {
-                document.body.removeChild(alertElement);
+        try {
+            const alertElement = templates.alert.content.cloneNode(true).firstElementChild;
+            if (!alertElement) {
+                console.error('Failed to clone alert template');
+                return;
             }
-        }, 10000);
-        
-        // Also add as a message in the chat
-        const alertContent = `**📊 PRICE ALERT**\n\n**${alert.symbol}** has ${alert.direction} by **${alert.percentChange.toFixed(2)}%**\nPrice: $${alert.previousPrice.toFixed(2)} → $${alert.price.toFixed(2)}\nVolume: ${alert.volume.toLocaleString()}`;
-        
-        const messageElement = createMessageElement('alert', alertContent);
-        elements.chatMessages.appendChild(messageElement);
-        scrollToBottom();
+            
+            const symbolDiv = alertElement.querySelector('.alert-symbol');
+            const priceDiv = alertElement.querySelector('.alert-price');
+            const changeDiv = alertElement.querySelector('.alert-change');
+            const closeBtn = alertElement.querySelector('.alert-close');
+            
+            if (symbolDiv) symbolDiv.innerHTML = `<span class="cmd-prompt">$</span> ${alert.symbol}`;
+            if (priceDiv) priceDiv.textContent = `$${alert.price.toFixed(2)}`;
+            
+            if (changeDiv) {
+                const directionArrow = alert.percentChange >= 0 ? '↑' : '↓';
+                const changeText = `${directionArrow} ${Math.abs(alert.percentChange).toFixed(2)}% from $${alert.previousPrice.toFixed(2)}`;
+                changeDiv.textContent = changeText;
+                changeDiv.classList.add(alert.percentChange >= 0 ? 'positive' : 'negative');
+            }
+            
+            // Set up close button with event handling
+            if (closeBtn) {
+                closeBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    document.body.removeChild(alertElement);
+                });
+            }
+            
+            // Add to DOM
+            document.body.appendChild(alertElement);
+            alertElement.style.display = 'block';
+            
+            // Add glitch animation on appearance
+            setTimeout(() => {
+                alertElement.classList.add('glitch');
+                setTimeout(() => alertElement.classList.remove('glitch'), 500);
+            }, 100);
+            
+            // Auto-remove after 10 seconds
+            setTimeout(() => {
+                if (document.body.contains(alertElement)) {
+                    document.body.removeChild(alertElement);
+                }
+            }, 10000);
+            
+            // Also add as a message in the chat with terminal styling
+            const alertContent = `**📊 PRICE ALERT**\n\n**${alert.symbol}** has ${alert.direction} by **${Math.abs(alert.percentChange).toFixed(2)}%**\nPrice: $${alert.previousPrice.toFixed(2)} → $${alert.price.toFixed(2)}\nVolume: ${alert.volume.toLocaleString()}`;
+            
+            if (elements.chatMessages) {
+                const messageElement = createMessageElement('alert', alertContent);
+                const contentDiv = messageElement.querySelector('.message-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = marked.parse(alertContent);
+                }
+                
+                elements.chatMessages.appendChild(messageElement);
+                scrollToBottom();
+            }
+        } catch (err) {
+            console.error('Error creating alert:', err);
+        }
     }
 
     // Visualize financial data from message content
@@ -851,7 +1022,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Scroll chat to bottom
     function scrollToBottom() {
-        elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+        if (elements.chatMessages) {
+            elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+        }
+    }
+
+    // Simple static cursor
+    function addBlinkingCursor() {
+        // Function simplified - no cursor animation for cleaner design
     }
 
     // Initialize app

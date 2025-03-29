@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -58,7 +59,7 @@ func (c *APIClient) GetStockQuote(ctx context.Context, symbol string) (*StockQuo
 	}
 
 	// Otherwise use the local API service
-	url := fmt.Sprintf("%s/api/quote/%s", c.baseURL, symbol)
+	url := fmt.Sprintf("%s/api/quote/%s", c.baseURL, url.PathEscape(symbol))
 	
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -92,7 +93,7 @@ func (c *APIClient) GetMarketData(ctx context.Context, index string) (*MarketDat
 	}
 
 	// Otherwise use the local API service
-	url := fmt.Sprintf("%s/api/index/%s", c.baseURL, index)
+	url := fmt.Sprintf("%s/api/index/%s", c.baseURL, url.PathEscape(index))
 	
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -144,7 +145,7 @@ func (c *APIClient) GetCryptoQuote(ctx context.Context, symbol string) (*StockQu
 	}
 
 	// Otherwise use the local API service
-	url := fmt.Sprintf("%s/api/crypto/%s", c.baseURL, symbol)
+	url := fmt.Sprintf("%s/api/crypto/%s", c.baseURL, url.PathEscape(symbol))
 	
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

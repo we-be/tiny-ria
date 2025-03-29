@@ -4,11 +4,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
         websocket: null,
         messageHistory: [],
-        theme: localStorage.getItem('theme') || 'light',
+        // Default to dark theme for terminal-like experience
+        theme: localStorage.getItem('theme') || 'dark',
         monitoredSymbols: JSON.parse(localStorage.getItem('monitoredSymbols') || '[]'),
         marketIndices: [],
         currentChart: null,
         isPanelCollapsed: localStorage.getItem('isPanelCollapsed') === 'true' || false,
+        isTypingEffect: true, // Enable typing effect for messages
     };
 
     // DOM references
@@ -45,6 +47,9 @@ document.addEventListener('DOMContentLoaded', () => {
         setupEventListeners();
         applyTheme();
         updateDataPanel();
+        
+        // Add a blinking cursor to the chat input
+        addBlinkingCursor();
 
         // Auto-resize textarea as content grows
         autoResizeTextarea(elements.chatInput);
@@ -66,6 +71,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1000);
     }
 
+    // Simple static cursor
+    function addBlinkingCursor() {
+        // Function simplified - no cursor animation for cleaner design
+    }
+
     // Set up WebSocket connection
     function setupWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -75,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.websocket.onopen = () => {
             console.log('WebSocket connection established');
-            addSystemMessage('Connected to Quotron Agent');
+            addSystemMessage('Connection established. Welcome to the terminal.');
             
             // Retry data loading once connection is established
             if (state.monitoredSymbols.length > 0) {
@@ -95,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.websocket.onclose = () => {
             console.log('WebSocket connection closed');
-            addSystemMessage('Connection lost. Attempting to reconnect...');
+            addSystemMessage('> CONNECTION LOST. Attempting to reconnect...');
             
             // Try to reconnect after a delay
             setTimeout(setupWebSocket, 3000);
@@ -103,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.websocket.onerror = (error) => {
             console.error('WebSocket error:', error);
-            addErrorMessage('Error connecting to the server. Please check your connection.');
+            addErrorMessage('> ERROR: Connection failed. Please check your connection.');
         };
     }
 
@@ -141,6 +151,14 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Handle stock/crypto price data update
     function handlePriceData(data) {
+        // Add a glitch animation for updated data
+        const glitchAnimation = (element) => {
+            element.classList.add('updated');
+            setTimeout(() => {
+                element.classList.remove('updated');
+            }, 1000);
+        };
+        
         // Update UI for the specific symbol
         const allSymbols = elements.monitoredList.querySelectorAll('.monitored-symbol');
         for (const symbolElement of allSymbols) {
@@ -149,16 +167,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const priceDiv = symbolElement.querySelector('.symbol-price');
                 const changeDiv = symbolElement.querySelector('.symbol-change');
                 
-                priceDiv.textContent = `$${data.price.toFixed(2)}`;
-                changeDiv.textContent = `${data.changePercent >= 0 ? '+' : ''}${data.changePercent.toFixed(2)}%`;
+                // Add typing effect for price updates
+                typeWriter(priceDiv, `$${data.price.toFixed(2)}`, 50);
+                
+                // Add change with direction indicator
+                const changeText = `${data.changePercent >= 0 ? '↑' : '↓'} ${Math.abs(data.changePercent).toFixed(2)}%`;
+                typeWriter(changeDiv, changeText, 50);
+                
                 changeDiv.classList.remove('positive', 'negative');
                 changeDiv.classList.add(data.changePercent >= 0 ? 'positive' : 'negative');
                 
-                // Briefly highlight to show it was updated
-                symbolElement.classList.add('updated');
-                setTimeout(() => {
-                    symbolElement.classList.remove('updated');
-                }, 1000);
+                // Apply glitch animation to show it was updated
+                glitchAnimation(symbolElement);
                 break;
             }
         }
@@ -194,10 +214,19 @@ document.addEventListener('DOMContentLoaded', () => {
             valueDiv.textContent = index.value.toFixed(2);
             
             const changePercent = index.percent || (index.change / index.value * 100).toFixed(2);
-            changeDiv.textContent = `${index.change >= 0 ? '+' : ''}${index.change.toFixed(2)} (${changePercent}%)`;
+            const changeText = `${index.change >= 0 ? '↑' : '↓'} ${Math.abs(index.change).toFixed(2)} (${Math.abs(changePercent).toFixed(2)}%)`;
+            changeDiv.textContent = changeText;
             changeDiv.classList.add(index.change >= 0 ? 'positive' : 'negative');
             
             elements.marketIndices.appendChild(clone);
+        });
+        
+        // Apply glitch animation to the indices
+        elements.marketIndices.querySelectorAll('.market-index').forEach(element => {
+            element.classList.add('updated');
+            setTimeout(() => {
+                element.classList.remove('updated');
+            }, 1000);
         });
         
         // Update the state
@@ -249,6 +278,12 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.addEventListener('click', () => {
                 const query = btn.dataset.query;
                 sendUserMessage(query);
+                
+                // Add a slight ripple effect on click
+                const ripple = document.createElement('span');
+                ripple.className = 'btn-ripple';
+                btn.appendChild(ripple);
+                setTimeout(() => ripple.remove(), 600);
             });
         });
 
@@ -260,6 +295,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // Auto-resize textarea as user types
         elements.chatInput.addEventListener('input', () => {
             autoResizeTextarea(elements.chatInput);
+        });
+        
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+K to clear chat
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                clearChat();
+            }
+            
+            // Ctrl+L to toggle theme
+            if (e.ctrlKey && e.key === 'l') {
+                e.preventDefault();
+                toggleTheme();
+            }
         });
     }
 
@@ -275,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 content: content
             }));
         } else {
-            addErrorMessage('Cannot send message. Connection to server lost.');
+            addErrorMessage('> ERROR: Cannot send message. Connection lost.');
             setupWebSocket(); // Try to reconnect
         }
 
@@ -321,9 +371,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add a user message to the chat
     function addUserMessage(content) {
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         const messageElement = createMessageElement('user', content);
         elements.chatMessages.appendChild(messageElement);
         scrollToBottom();
+        
+        // Add prefix to make it look command-like
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = `<span class="cmd-prompt">$</span> ${content}`;
+        }
         
         // Save to history
         state.messageHistory.push({
@@ -333,13 +394,49 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Add an assistant message to the chat
+    // Add an assistant message to the chat with typing effect
     function addAssistantMessage(content) {
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         // Remove typing indicator if present
         removeTypingIndicator();
         
-        const messageElement = createMessageElement('assistant', content);
-        elements.chatMessages.appendChild(messageElement);
+        // Create a very simple message element directly instead of using templates
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message assistant';
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = new Date().toLocaleTimeString();
+        
+        // Add terminal-like prefix
+        if (state.isTypingEffect) {
+            // Format content with Markdown
+            const formattedContent = marked.parse(content);
+            contentDiv.innerHTML = `<span class="cmd-prompt">></span> `;
+            
+            // Append the message elements first
+            messageElement.appendChild(contentDiv);
+            messageElement.appendChild(timeDiv);
+            elements.chatMessages.appendChild(messageElement);
+            
+            // Use typewriter effect for the assistant messages
+            typewriterHTML(contentDiv, formattedContent, 5);
+        } else {
+            contentDiv.innerHTML = `<span class="cmd-prompt">></span> ${marked.parse(content)}`;
+            
+            // Append the message elements
+            messageElement.appendChild(contentDiv);
+            messageElement.appendChild(timeDiv);
+            elements.chatMessages.appendChild(messageElement);
+        }
+        
         scrollToBottom();
         
         // Save to history
@@ -352,8 +449,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add a system message to the chat
     function addSystemMessage(content) {
+        // Check if chat messages container exists
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         const messageElement = createMessageElement('system', content);
         elements.chatMessages.appendChild(messageElement);
+        
+        // Add terminal prefix to make it look like a system message
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = `<span class="cmd-prompt">#</span> ${content}`;
+        }
+        
         scrollToBottom();
         
         // Save to history
@@ -366,11 +476,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add an error message to the chat
     function addErrorMessage(content) {
+        // Check if chat messages container exists
+        if (!elements.chatMessages) {
+            console.error('Chat messages container not found');
+            return;
+        }
+        
         // Remove typing indicator if present
         removeTypingIndicator();
         
         const messageElement = createMessageElement('error', content);
         elements.chatMessages.appendChild(messageElement);
+        
+        // Add error prefix
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = `<span class="cmd-prompt">!</span> ${content}`;
+        }
+        
         scrollToBottom();
         
         // Save to history
@@ -383,25 +506,142 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Create a message element
     function createMessageElement(type, content) {
-        const clone = templates.message.content.cloneNode(true);
-        const messageDiv = clone.querySelector('.message');
-        const contentDiv = clone.querySelector('.message-content');
-        const timeDiv = clone.querySelector('.message-time');
-        
-        messageDiv.classList.add(type);
-        
-        // Format content with Markdown for assistant and system messages
-        if (type === 'assistant' || type === 'system') {
-            contentDiv.innerHTML = marked.parse(content);
-        } else {
-            contentDiv.textContent = content;
+        // Check if template exists
+        if (!templates.message) {
+            console.error('Message template not found');
+            // Create a simple message element as fallback
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.innerHTML = `<div class="message-content">${content}</div><div class="message-time">${new Date().toLocaleTimeString()}</div>`;
+            return div;
         }
         
-        // Add timestamp
-        const now = new Date();
-        timeDiv.textContent = now.toLocaleTimeString();
+        try {
+            const clone = templates.message.content.cloneNode(true);
+            const messageDiv = clone.querySelector('.message');
+            const contentDiv = clone.querySelector('.message-content');
+            const timeDiv = clone.querySelector('.message-time');
+            
+            if (messageDiv) messageDiv.classList.add(type);
+            
+            // Early return with fallback if contentDiv is not found
+            if (!contentDiv) {
+                console.error('Message content div not found in template clone');
+                // Create a fallback div with the content
+                const div = document.createElement('div');
+                div.className = `message ${type}`;
+                div.innerHTML = `<div class="message-content">${content}</div><div class="message-time">${new Date().toLocaleTimeString()}</div>`;
+                return div;
+            }
+            
+            // Add timestamp
+            if (timeDiv) {
+                const now = new Date();
+                timeDiv.textContent = now.toLocaleTimeString();
+            }
+            
+            // For user messages, error messages, and system messages add content directly
+            if (type === 'user' || type === 'error' || type === 'system') {
+                contentDiv.textContent = content;
+            }
+            // For assistant messages, we don't set content here - it will be set in addAssistantMessage
+            
+            return clone;
+        } catch (err) {
+            console.error('Error creating message element:', err);
+            // Create a simple message element as fallback
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.innerHTML = `<div class="message-content">${content}</div><div class="message-time">${new Date().toLocaleTimeString()}</div>`;
+            return div;
+        }
+    }
+
+    // Typewriter effect for normal text
+    function typeWriter(element, text, speed = 30) {
+        let i = 0;
+        element.textContent = ''; // Clear first
         
-        return clone;
+        const typing = setInterval(() => {
+            if (i < text.length) {
+                element.textContent += text.charAt(i);
+                i++;
+            } else {
+                clearInterval(typing);
+            }
+        }, speed);
+    }
+    
+    // Typewriter effect that preserves HTML formatting
+    function typewriterHTML(element, html, speed = 10) {
+        // Create a temporary div to hold the HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        // Convert the HTML into a flat array of text and HTML nodes
+        const nodes = flattenNodes(tempDiv);
+        let currentIndex = 0;
+        
+        // Start the typing effect
+        const typing = setInterval(() => {
+            if (currentIndex < nodes.length) {
+                const node = nodes[currentIndex];
+                
+                if (node.type === 'text') {
+                    element.innerHTML += node.content;
+                } else if (node.type === 'tag') {
+                    element.innerHTML += node.content;
+                }
+                
+                currentIndex++;
+                scrollToBottom();
+            } else {
+                clearInterval(typing);
+            }
+        }, speed);
+    }
+    
+    // Flatten HTML nodes for the typewriter effect
+    function flattenNodes(parentNode) {
+        let result = [];
+        
+        // Process each child node
+        parentNode.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                // Split text into characters
+                const chars = node.textContent.split('');
+                chars.forEach(char => {
+                    result.push({ type: 'text', content: char });
+                });
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                // Add opening tag
+                const openTag = getOpeningTag(node);
+                result.push({ type: 'tag', content: openTag });
+                
+                // Process children recursively
+                const childNodes = flattenNodes(node);
+                result = result.concat(childNodes);
+                
+                // Add closing tag
+                const closeTag = `</${node.tagName.toLowerCase()}>`;
+                result.push({ type: 'tag', content: closeTag });
+            }
+        });
+        
+        return result;
+    }
+    
+    // Get opening tag with attributes
+    function getOpeningTag(node) {
+        const tagName = node.tagName.toLowerCase();
+        let attributes = '';
+        
+        for (let i = 0; i < node.attributes.length; i++) {
+            const attr = node.attributes[i];
+            attributes += ` ${attr.name}="${attr.value}"`;
+        }
+        
+        return `<${tagName}${attributes}>`;
     }
 
     // Handle typing indicator
@@ -410,15 +650,12 @@ document.addEventListener('DOMContentLoaded', () => {
         removeTypingIndicator();
         
         if (status === 'start') {
-            // Create typing indicator
+            // Create typing indicator with terminal styling
             const indicator = document.createElement('div');
             indicator.className = 'message assistant typing-indicator';
             indicator.innerHTML = `
-                <div>Assistant is typing</div>
-                <div class="dots">
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                    <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
                 </div>
             `;
             
@@ -439,7 +676,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function clearChat() {
         elements.chatMessages.innerHTML = '';
         state.messageHistory = [];
-        addSystemMessage('Chat history cleared');
+        addSystemMessage('Terminal cleared. Session reset.');
     }
 
     // Toggle theme
@@ -452,11 +689,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // Apply current theme
     function applyTheme() {
         if (state.theme === 'dark') {
-            document.body.classList.add('dark-theme');
+            document.body.classList.remove('light-theme');
             elements.toggleTheme.textContent = '☀️';
+            // Update Chart.js theme if we have a chart
+            updateChartTheme();
         } else {
-            document.body.classList.remove('dark-theme');
+            document.body.classList.add('light-theme');
             elements.toggleTheme.textContent = '🌙';
+            // Update Chart.js theme if we have a chart
+            updateChartTheme();
+        }
+    }
+    
+    // Update Chart.js theme based on current theme
+    function updateChartTheme() {
+        if (state.currentChart) {
+            const textColor = state.theme === 'dark' ? '#f8fafc' : '#0f172a';
+            const gridColor = state.theme === 'dark' ? '#334155' : '#e2e8f0';
+            
+            state.currentChart.options.plugins.tooltip.backgroundColor = state.theme === 'dark' ? '#1e293b' : '#ffffff';
+            state.currentChart.options.plugins.tooltip.titleColor = textColor;
+            state.currentChart.options.plugins.tooltip.bodyColor = textColor;
+            state.currentChart.options.scales.x.grid.color = gridColor;
+            state.currentChart.options.scales.x.ticks.color = textColor;
+            state.currentChart.options.scales.y.grid.color = gridColor;
+            state.currentChart.options.scales.y.ticks.color = textColor;
+            
+            state.currentChart.update();
         }
     }
 
@@ -494,35 +753,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Update monitored symbols list
     function updateMonitoredSymbols() {
+        if (!elements.monitoredList) {
+            console.error('Monitored list element not found');
+            return;
+        }
+        
+        // Clear the list once - no duplicates
         elements.monitoredList.innerHTML = '';
         
         if (state.monitoredSymbols.length === 0) {
             const emptyState = document.createElement('p');
             emptyState.className = 'empty-state';
-            emptyState.textContent = 'No symbols monitored yet';
+            emptyState.innerHTML = 'No symbols monitored yet';
             elements.monitoredList.appendChild(emptyState);
             return;
         }
         
+        // Create a simple method of monitoring symbols without using templates
         state.monitoredSymbols.forEach(symbol => {
-            const clone = templates.monitoredSymbol.content.cloneNode(true);
-            const symbolDiv = clone.querySelector('.monitored-symbol');
-            const nameDiv = clone.querySelector('.symbol-name');
-            const priceDiv = clone.querySelector('.symbol-price');
-            const changeDiv = clone.querySelector('.symbol-change');
-            const removeBtn = clone.querySelector('.remove-symbol');
+            // Create a direct DOM element instead of using templates
+            const symbolDiv = document.createElement('div');
+            symbolDiv.className = 'monitored-symbol';
             
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'symbol-name';
             nameDiv.textContent = symbol;
+            
+            const priceDiv = document.createElement('div');
+            priceDiv.className = 'symbol-price';
             priceDiv.textContent = 'Loading...';
             
-            // Set up remove button
-            removeBtn.addEventListener('click', () => {
+            const changeDiv = document.createElement('div');
+            changeDiv.className = 'symbol-change';
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-symbol';
+            removeBtn.innerHTML = '<i data-lucide="x" size="12"></i>';
+            removeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 removeMonitoredSymbol(symbol);
             });
             
-            elements.monitoredList.appendChild(clone);
+            // Append all elements to the symbol div
+            symbolDiv.appendChild(nameDiv);
+            symbolDiv.appendChild(priceDiv);
+            symbolDiv.appendChild(changeDiv);
+            symbolDiv.appendChild(removeBtn);
             
-            // Fetch latest price data from API
+            // Add the complete symbol div to the monitored list
+            elements.monitoredList.appendChild(symbolDiv);
+            
+            // Initialize Lucide icons if available
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                lucide.createIcons({
+                    attrs: {
+                        'stroke-width': 1.5,
+                        'stroke': 'currentColor'
+                    },
+                    elements: symbolDiv.querySelectorAll('[data-lucide]')
+                });
+            }
+            
+            // Fetch latest price data
             fetchSymbolPrice(symbol);
         });
     }
@@ -588,17 +881,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleAlert(alert) {
         console.log('Alert received:', alert);
         
-        // Create alert element
+        // Create alert element with cyberpunk-terminal styling
         const alertElement = templates.alert.content.cloneNode(true).firstElementChild;
         const symbolDiv = alertElement.querySelector('.alert-symbol');
         const priceDiv = alertElement.querySelector('.alert-price');
         const changeDiv = alertElement.querySelector('.alert-change');
         const closeBtn = alertElement.querySelector('.alert-close');
         
-        symbolDiv.textContent = alert.symbol;
+        symbolDiv.innerHTML = `<span class="cmd-prompt">$</span> ${alert.symbol}`;
         priceDiv.textContent = `$${alert.price.toFixed(2)}`;
         
-        const changeText = `${alert.direction === 'increased' ? '+' : ''}${alert.percentChange.toFixed(2)}% from $${alert.previousPrice.toFixed(2)}`;
+        const directionArrow = alert.percentChange >= 0 ? '↑' : '↓';
+        const changeText = `${directionArrow} ${Math.abs(alert.percentChange).toFixed(2)}% from $${alert.previousPrice.toFixed(2)}`;
         changeDiv.textContent = changeText;
         changeDiv.classList.add(alert.percentChange >= 0 ? 'positive' : 'negative');
         
@@ -611,6 +905,12 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.appendChild(alertElement);
         alertElement.style.display = 'block';
         
+        // Add glitch animation on appearance
+        setTimeout(() => {
+            alertElement.classList.add('glitch');
+            setTimeout(() => alertElement.classList.remove('glitch'), 500);
+        }, 100);
+        
         // Auto-remove after 10 seconds
         setTimeout(() => {
             if (document.body.contains(alertElement)) {
@@ -618,10 +918,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, 10000);
         
-        // Also add as a message in the chat
-        const alertContent = `**📊 PRICE ALERT**\n\n**${alert.symbol}** has ${alert.direction} by **${alert.percentChange.toFixed(2)}%**\nPrice: $${alert.previousPrice.toFixed(2)} → $${alert.price.toFixed(2)}\nVolume: ${alert.volume.toLocaleString()}`;
+        // Also add as a message in the chat with terminal styling
+        const alertContent = `**📊 PRICE ALERT**\n\n**${alert.symbol}** has ${alert.direction} by **${Math.abs(alert.percentChange).toFixed(2)}%**\nPrice: $${alert.previousPrice.toFixed(2)} → $${alert.price.toFixed(2)}\nVolume: ${alert.volume.toLocaleString()}`;
         
         const messageElement = createMessageElement('alert', alertContent);
+        const contentDiv = messageElement.querySelector('.message-content');
+        contentDiv.innerHTML = marked.parse(alertContent);
+        
         elements.chatMessages.appendChild(messageElement);
         scrollToBottom();
     }
@@ -714,11 +1017,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const labels = data.map(item => item.symbol);
         const prices = data.map(item => item.price);
         const changes = data.map(item => item.changePercent);
+        
+        // Use theme-based colors
+        const isDark = state.theme === 'dark';
+        const positiveColor = isDark ? 'rgba(16, 185, 129, 0.7)' : 'rgba(16, 185, 129, 0.7)';
+        const negativeColor = isDark ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.7)';
+        const textColor = isDark ? '#f8fafc' : '#0f172a';
+        const gridColor = isDark ? '#334155' : '#e2e8f0';
+        
         const backgroundColors = changes.map(change => 
-            change >= 0 ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)'
+            change >= 0 ? positiveColor : negativeColor
         );
         
-        // Create chart
+        // Chart.js configuration with terminal-like styling
         const ctx = elements.priceChart.getContext('2d');
         state.currentChart = new Chart(ctx, {
             type: 'bar',
@@ -729,31 +1040,83 @@ document.addEventListener('DOMContentLoaded', () => {
                     data: prices,
                     backgroundColor: backgroundColors,
                     borderColor: backgroundColors.map(color => color.replace('0.7', '1')),
-                    borderWidth: 1
+                    borderWidth: 1,
+                    borderRadius: 4,
+                    barThickness: 18,
+                    maxBarThickness: 30
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                },
                 plugins: {
                     legend: {
                         display: false
                     },
                     tooltip: {
+                        backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                        titleColor: textColor,
+                        bodyColor: textColor,
+                        cornerRadius: 6,
+                        padding: 12,
+                        displayColors: false,
+                        titleFont: {
+                            family: "'JetBrains Mono', monospace",
+                            size: 14
+                        },
+                        bodyFont: {
+                            family: "'JetBrains Mono', monospace",
+                            size: 12
+                        },
                         callbacks: {
+                            title: function(tooltipItems) {
+                                return tooltipItems[0].label;
+                            },
                             label: function(context) {
                                 const index = context.dataIndex;
+                                const arrow = changes[index] >= 0 ? '↑' : '↓';
                                 return [
                                     `Price: $${prices[index].toFixed(2)}`,
-                                    `Change: ${changes[index] >= 0 ? '+' : ''}${changes[index].toFixed(2)}%`
+                                    `Change: ${arrow} ${Math.abs(changes[index]).toFixed(2)}%`
                                 ];
                             }
                         }
                     }
                 },
                 scales: {
+                    x: {
+                        grid: {
+                            display: false,
+                            color: gridColor
+                        },
+                        ticks: {
+                            color: textColor,
+                            font: {
+                                family: "'JetBrains Mono', monospace",
+                                size: 11
+                            }
+                        }
+                    },
                     y: {
-                        beginAtZero: false
+                        beginAtZero: false,
+                        grid: {
+                            color: gridColor,
+                            lineWidth: 0.5
+                        },
+                        ticks: {
+                            color: textColor,
+                            font: {
+                                family: "'JetBrains Mono', monospace",
+                                size: 11
+                            },
+                            callback: function(value) {
+                                return '$' + value;
+                            }
+                        }
                     }
                 }
             }
@@ -773,7 +1136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const avgPriceHeader = avgPriceCard.querySelector('.card-header');
         const avgPriceValue = avgPriceCard.querySelector('.card-value');
         
-        avgPriceHeader.textContent = 'Average Price';
+        avgPriceHeader.textContent = 'AVG PRICE';
         avgPriceValue.textContent = `$${avgPrice.toFixed(2)}`;
         
         elements.dataCards.appendChild(avgPriceCard);
@@ -784,8 +1147,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const avgChangeValue = avgChangeCard.querySelector('.card-value');
         const avgChangeEl = avgChangeCard.querySelector('.card-change');
         
-        avgChangeHeader.textContent = 'Average Change';
-        avgChangeValue.textContent = `${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}%`;
+        avgChangeHeader.textContent = 'AVG CHANGE';
+        
+        const directionArrow = avgChange >= 0 ? '↑' : '↓';
+        avgChangeValue.textContent = `${directionArrow} ${Math.abs(avgChange).toFixed(2)}%`;
         avgChangeEl.classList.add(avgChange >= 0 ? 'positive' : 'negative');
         
         elements.dataCards.appendChild(avgChangeCard);
@@ -799,9 +1164,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const gainerValue = gainerCard.querySelector('.card-value');
         const gainerChange = gainerCard.querySelector('.card-change');
         
-        gainerHeader.textContent = 'Top Performer';
+        gainerHeader.textContent = 'TOP PERFORMER';
         gainerValue.textContent = highestGainer.symbol;
-        gainerChange.textContent = `${highestGainer.changePercent >= 0 ? '+' : ''}${highestGainer.changePercent.toFixed(2)}%`;
+        
+        const gainerArrow = highestGainer.changePercent >= 0 ? '↑' : '↓';
+        gainerChange.textContent = `${gainerArrow} ${Math.abs(highestGainer.changePercent).toFixed(2)}%`;
         gainerChange.classList.add(highestGainer.changePercent >= 0 ? 'positive' : 'negative');
         
         elements.dataCards.appendChild(gainerCard);
@@ -811,7 +1178,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const volumeHeader = volumeCard.querySelector('.card-header');
         const volumeValue = volumeCard.querySelector('.card-value');
         
-        volumeHeader.textContent = 'Total Volume';
+        volumeHeader.textContent = 'TOTAL VOLUME';
         
         // Try to parse volume as number
         const totalVolume = data.reduce((sum, item) => {
@@ -824,6 +1191,17 @@ document.addEventListener('DOMContentLoaded', () => {
         volumeValue.textContent = totalVolume.toLocaleString();
         
         elements.dataCards.appendChild(volumeCard);
+        
+        // Add a glitch animation effect to the cards
+        setTimeout(() => {
+            const cards = elements.dataCards.querySelectorAll('.data-card');
+            cards.forEach((card, index) => {
+                setTimeout(() => {
+                    card.classList.add('updated');
+                    setTimeout(() => card.classList.remove('updated'), 1000);
+                }, index * 200);
+            });
+        }, 200);
     }
 
     // Update data panel
@@ -836,8 +1214,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const placeholderHeader = placeholderCard.querySelector('.card-header');
             const placeholderValue = placeholderCard.querySelector('.card-value');
             
-            placeholderHeader.textContent = 'No Data Yet';
-            placeholderValue.textContent = 'Ask about markets to see data';
+            placeholderHeader.textContent = 'NO DATA YET';
+            placeholderValue.innerHTML = 'Ask about markets';
             
             elements.dataCards.appendChild(placeholderCard);
         }

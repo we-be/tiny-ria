@@ -82,6 +82,13 @@ func (a *Agent) FetchStockData(ctx context.Context, symbols []string) (map[strin
 		// Clean up the symbol to use standard format
 		cleanSymbol := GetStandardTickerSymbol(symbol)
 		
+		// Extra validation of symbol formats
+		if !isValidSymbol(cleanSymbol) {
+			a.logger.Printf("ERROR: Invalid symbol format: %s (cleaned to: %s)", symbol, cleanSymbol)
+			errors = append(errors, fmt.Sprintf("%s: invalid symbol format", symbol))
+			continue
+		}
+		
 		a.logger.Printf("DEBUG: Requesting stock quote for %s (clean symbol: %s) from Quotron API", symbol, cleanSymbol)
 		quote, err := a.apiClient.GetStockQuote(ctx, cleanSymbol)
 		if err != nil {
@@ -113,6 +120,13 @@ func (a *Agent) FetchCryptoData(ctx context.Context, symbols []string) (map[stri
 	for _, symbol := range symbols {
 		// Clean up the symbol to use standard format
 		cleanSymbol := GetStandardTickerSymbol(symbol)
+		
+		// Extra validation of symbol formats
+		if !isValidSymbol(cleanSymbol) {
+			a.logger.Printf("ERROR: Invalid symbol format: %s (cleaned to: %s)", symbol, cleanSymbol)
+			errors = append(errors, fmt.Sprintf("%s: invalid symbol format", symbol))
+			continue
+		}
 		
 		a.logger.Printf("DEBUG: Requesting crypto quote for %s (clean symbol: %s) from Quotron API", symbol, cleanSymbol)
 		quote, err := a.apiClient.GetCryptoQuote(ctx, cleanSymbol)
@@ -169,6 +183,31 @@ func (a *Agent) FetchMarketData(ctx context.Context, indices []string) (map[stri
 	}
 	
 	return results, nil
+}
+
+// isValidSymbol checks if a symbol is in valid format
+func isValidSymbol(symbol string) bool {
+	// Empty symbols are invalid
+	if symbol == "" {
+		return false
+	}
+	
+	// Symbols shouldn't contain these characters
+	invalidChars := []string{"(", ")", "[", "]", "{", "}", "<", ">", ",", ";", "'", "`", "\""}
+	for _, char := range invalidChars {
+		if strings.Contains(symbol, char) {
+			return false
+		}
+	}
+	
+	// Symbols shouldn't be too long (real stock/crypto symbols are usually <10 chars)
+	if len(symbol) > 15 {
+		return false
+	}
+	
+	// Simple symbol validation - should ideally be alphanumeric with possible dash/dot
+	// but we're being permissive here to allow index symbols like ^GSPC
+	return true
 }
 
 // GetStandardTickerSymbol extracts a standard ticker symbol from various formats

@@ -3,20 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quotron Agent Chat</title>
+    <title>Quotron Agent Terminal</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide-icons@0.300.0/dist/css/lucide.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body>
     <div class="app-container">
         <header class="app-header">
             <div class="logo">
                 <img src="/static/img/logo.svg" alt="Quotron" class="logo-img">
-                <h1>Quotron Agent</h1>
+                <h1>QUOTRON_TERMINAL<span class="terminal-cursor"></span></h1>
             </div>
             <div class="header-controls">
-                <button id="clear-chat" class="btn btn-secondary">Clear Chat</button>
+                <button id="clear-chat" class="btn btn-secondary">
+                    <i data-lucide="trash-2" size="16"></i>
+                    <span>Clear</span>
+                </button>
                 <button id="toggle-theme" class="btn btn-icon">🌙</button>
             </div>
         </header>
@@ -24,27 +29,29 @@
         <div class="main-content">
             <div class="sidebar">
                 <div class="market-overview">
-                    <h3>Market Overview</h3>
+                    <h3><i data-lucide="bar-chart-2" size="14"></i> Market Overview</h3>
                     <div id="market-indices">
                         <div class="loading-spinner"></div>
                     </div>
                 </div>
                 <div class="monitored-symbols">
-                    <h3>Monitored Symbols</h3>
+                    <h3><i data-lucide="activity" size="14"></i> Monitored Symbols</h3>
                     <div id="monitored-list">
-                        <p class="empty-state">No symbols monitored yet</p>
+                        <p class="empty-state">No symbols monitored yet<span class="terminal-cursor"></span></p>
                     </div>
                     <div class="add-symbol">
                         <input type="text" id="symbol-input" placeholder="Add symbol (e.g., AAPL)">
-                        <button id="add-symbol-btn" class="btn btn-primary btn-sm">Add</button>
+                        <button id="add-symbol-btn" class="btn btn-primary btn-sm">
+                            <i data-lucide="plus" size="12"></i>
+                        </button>
                     </div>
                 </div>
                 <div class="quick-actions">
-                    <h3>Quick Actions</h3>
+                    <h3><i data-lucide="zap" size="14"></i> Quick Actions</h3>
                     <button class="quick-action-btn" data-query="Show me the top tech stocks today">Tech Stocks</button>
                     <button class="quick-action-btn" data-query="What's happening with Bitcoin?">Crypto Update</button>
                     <button class="quick-action-btn" data-query="How is the S&P 500 performing?">S&P 500</button>
-                    <button class="quick-action-btn" data-query="Monitor AAPL, MSFT, GOOG with 2% threshold">Monitor Tech</button>
+                    <button class="quick-action-btn" data-query="Monitor AAPL, MSFT, AMZN, GOOGL with 1% threshold">Blue Chips</button>
                 </div>
             </div>
 
@@ -55,17 +62,14 @@
                 
                 <div class="chat-input-container">
                     <form id="chat-form">
+                        <span class="input-prefix cmd-prompt">$</span>
                         <textarea 
                             id="chat-input" 
-                            placeholder="Type your message here..." 
+                            placeholder="Type your query..." 
                             rows="1"
                             aria-label="Message input"></textarea>
                         <button type="submit" class="btn btn-primary send-button">
-                            <span>Send</span>
-                            <svg viewBox="0 0 24 24" fill="none" class="send-icon">
-                                <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-                                <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-                            </svg>
+                            <i data-lucide="send" size="16"></i>
                         </button>
                     </form>
                 </div>
@@ -73,8 +77,10 @@
 
             <div class="data-panel">
                 <div class="panel-header">
-                    <h3>Financial Data</h3>
-                    <button id="collapse-panel" class="btn btn-icon">◀</button>
+                    <h3><i data-lucide="database" size="14"></i> Financial Data</h3>
+                    <button id="collapse-panel" class="btn btn-icon">
+                        <i data-lucide="chevron-right" size="16"></i>
+                    </button>
                 </div>
                 <div class="panel-content">
                     <div class="chart-container">
@@ -94,7 +100,10 @@
     <!-- Alert notification template -->
     <div id="alert-template" class="alert" style="display: none;">
         <div class="alert-header">
-            <span class="alert-title">Price Alert</span>
+            <span class="alert-title">
+                <i data-lucide="bell-ring" size="16"></i>
+                PRICE ALERT
+            </span>
             <button class="alert-close">&times;</button>
         </div>
         <div class="alert-content">
@@ -118,7 +127,7 @@
             <div class="symbol-name"></div>
             <div class="symbol-price"></div>
             <div class="symbol-change"></div>
-            <button class="remove-symbol">×</button>
+            <button class="remove-symbol"><i data-lucide="x" size="12"></i></button>
         </div>
     </template>
 
@@ -138,5 +147,11 @@
     </template>
 
     <script src="/static/js/app.js"></script>
+    <script>
+        // Initialize Lucide icons
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+        });
+    </script>
 </body>
 </html>
