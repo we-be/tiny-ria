@@ -45,9 +45,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setupEventListeners();
         applyTheme();
         updateDataPanel();
-        
-        // Add a blinking cursor to the chat input
-        addBlinkingCursor();
 
         // Auto-resize textarea as content grows
         autoResizeTextarea(elements.chatInput);

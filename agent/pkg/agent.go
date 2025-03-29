@@ -161,6 +161,12 @@ func (a *Agent) FetchMarketData(ctx context.Context, indices []string) (map[stri
 		originalIndex := index
 		index = GetStandardTickerSymbol(index)
 		standardIndex := mapIndexToYahooSymbol(index)
+		// Validate symbol format
+		if !isValidSymbol(standardIndex) {
+			a.logger.Printf("ERROR: Invalid index format: %s (mapped to: %s)", originalIndex, standardIndex)
+			errors = append(errors, fmt.Sprintf("%s: invalid index format", originalIndex))
+			continue
+		}
 		a.logger.Printf("DEBUG: Mapped index '%s' to standardized symbol '%s'", originalIndex, standardIndex)
 		
 		// Get data from Quotron API

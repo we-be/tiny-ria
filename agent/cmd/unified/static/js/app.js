@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
         marketIndices: [],
         currentChart: null,
         isPanelCollapsed: localStorage.getItem('isPanelCollapsed') === 'true' || false,
-        isTypingEffect: true, // Enable typing effect for messages
+        isTypingEffect: false, // Disable typing effect for cleaner interface
     };
 
     // DOM references
@@ -47,9 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setupEventListeners();
         applyTheme();
         updateDataPanel();
-        
-        // Add a blinking cursor to the chat input
-        addBlinkingCursor();
 
         // Auto-resize textarea as content grows
         autoResizeTextarea(elements.chatInput);
@@ -1254,7 +1251,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const placeholderValue = placeholderCard.querySelector('.card-value');
             
             placeholderHeader.textContent = 'NO DATA YET';
-            placeholderValue.innerHTML = 'Ask about markets';
+            placeholderValue.textContent = 'Ask about markets';
             
             elements.dataCards.appendChild(placeholderCard);
         }

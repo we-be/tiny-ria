@@ -147,7 +147,20 @@ func (a *AgentAssistant) processDirectCommand(ctx context.Context, command strin
 		// Extract symbols and threshold
 		matches := a.symbolsRgx.FindAllString(command, -1)
 		if len(matches) == 0 {
-			return "I couldn't find any stock symbols to monitor. Please specify symbols like AAPL or MSFT.", nil
+			// Log for debugging
+			fmt.Printf("Command '%s' didn't match any stock symbols using regex: %v\n", command, a.symbolsRgx)
+			
+			// Try a more direct approach for common stock symbols
+			commandUpper := strings.ToUpper(command)
+			for _, commonSymbol := range []string{"AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "META", "TSLA"} {
+				if strings.Contains(commandUpper, commonSymbol) {
+					matches = append(matches, commonSymbol)
+				}
+			}
+			
+			if len(matches) == 0 {
+				return "I couldn't find any stock symbols to monitor. Please specify symbols like AAPL or MSFT.", nil
+			}
 		}
 		
 		// Default threshold
