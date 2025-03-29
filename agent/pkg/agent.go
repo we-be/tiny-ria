@@ -9,25 +9,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/we-be/tiny-ria/agent/pkg/realdata"
 	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/client"
 )
 
 // Agent represents an autonomous agent that can interact with Quotron services
 type Agent struct {
-	name          string
-	apiClient     *client.APIClient
-	logger        *log.Logger
-	queuePublisher *QueuePublisher
+	name              string
+	apiClient         *client.APIClient
+	logger            *log.Logger
+	queuePublisher    *QueuePublisher
+	realDataProvider  realdata.FinancialDataProvider
+	forceRealData     bool
 }
 
 // AgentConfig holds configuration parameters for the agent
 type AgentConfig struct {
-	Name       string
-	APIHost    string
-	APIPort    int
-	LogPrefix  string
-	RedisAddr  string // Redis server address (optional)
-	EnableQueue bool  // Enable publishing to message queue
+	Name          string
+	APIHost       string
+	APIPort       int
+	LogPrefix     string
+	RedisAddr     string // Redis server address (optional)
+	EnableQueue   bool   // Enable publishing to message queue
+	UseRealAPI    bool   // Use real financial API instead of local API service
+	ForceRealData bool   // Skip API client completely and always use direct data provider
+	DataProvider  string // Name of the data provider to use (e.g., "yahoo-finance")
+	RealAPIKey    string // API key for real financial service
 }
 
 // NewAgent creates a new Agent instance
@@ -39,9 +46,22 @@ func NewAgent(config AgentConfig) *Agent {
 
 	logger := log.New(log.Writer(), logPrefix, log.LstdFlags)
 	
+	var apiClient *client.APIClient
+	
+	// Create the appropriate API client based on configuration
+	if config.UseRealAPI {
+		// Use a real external financial API
+		logger.Printf("Using real financial API for data")
+		apiClient = client.NewRealFinanceAPIClient(config.RealAPIKey)
+	} else {
+		// Use the configured API service (local or remote)
+		logger.Printf("Using API service at %s:%d for data", config.APIHost, config.APIPort)
+		apiClient = client.NewAPIClient(config.APIHost, config.APIPort)
+	}
+	
 	agent := &Agent{
 		name:      config.Name,
-		apiClient: client.NewAPIClient(config.APIHost, config.APIPort),
+		apiClient: apiClient,
 		logger:    logger,
 	}
 	
