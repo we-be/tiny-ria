@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
         websocket: null,
         messageHistory: [],
+        userMessages: JSON.parse(localStorage.getItem('userMessages') || '[]'), // Store user message history for recall
+        userMessageIndex: -1, // Current index in message history navigation
+        currentDraft: '', // Store current draft when navigating message history
         theme: localStorage.getItem('theme') || 'dark',
         monitoredSymbols: JSON.parse(localStorage.getItem('monitoredSymbols') || '[]'),
         marketIndices: [],
@@ -46,6 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
         setupEventListeners();
         applyTheme();
         updateDataPanel();
+        setupKeyboardHelp();
+        addShortcutIndicators();
 
         // Auto-resize textarea as content grows
         autoResizeTextarea(elements.chatInput);
@@ -65,6 +70,88 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log("WebSocket not ready, will retry data loading on open");
             }
         }, 1000);
+    }
+    
+    // Setup keyboard help dialog
+    function setupKeyboardHelp() {
+        const keyboardHelp = document.getElementById('keyboard-help');
+        const helpCloseBtn = document.getElementById('help-close');
+        
+        if (!keyboardHelp || !helpCloseBtn) {
+            console.error('Keyboard help elements not found');
+            return;
+        }
+        
+        // Function to toggle help dialog
+        window.toggleKeyboardHelp = function() {
+            keyboardHelp.classList.toggle('active');
+            
+            // Add event listener to close when clicking outside
+            if (keyboardHelp.classList.contains('active')) {
+                setTimeout(() => {
+                    document.addEventListener('click', closeHelpOnClickOutside);
+                }, 100);
+            } else {
+                document.removeEventListener('click', closeHelpOnClickOutside);
+            }
+        };
+        
+        // Close help dialog when close button is clicked
+        helpCloseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleKeyboardHelp();
+        });
+        
+        // Close help dialog when clicking outside
+        function closeHelpOnClickOutside(e) {
+            if (e.target === keyboardHelp) {
+                toggleKeyboardHelp();
+            }
+        }
+        
+        // Show help dialog when ? or Shift+/ is pressed
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === '?' || (e.key === '/' && e.shiftKey)) && 
+                document.activeElement !== elements.chatInput &&
+                document.activeElement !== elements.symbolInput) {
+                e.preventDefault();
+                toggleKeyboardHelp();
+            }
+            
+            // Close help dialog when ESC is pressed
+            if (e.key === 'Escape' && keyboardHelp.classList.contains('active')) {
+                toggleKeyboardHelp();
+            }
+        });
+    }
+    
+    // Add shortcut indicators to UI elements
+    function addShortcutIndicators() {
+        // Add indicator to clear button
+        const clearIndicator = document.createElement('span');
+        clearIndicator.className = 'shortcut-indicator';
+        clearIndicator.textContent = 'Ctrl+K';
+        elements.clearChat.appendChild(clearIndicator);
+        
+        // Add indicator to theme toggle button
+        const themeIndicator = document.createElement('span');
+        themeIndicator.className = 'shortcut-indicator';
+        themeIndicator.textContent = 'Ctrl+L';
+        elements.toggleTheme.appendChild(themeIndicator);
+        
+        // Add indicators to quick action buttons
+        elements.quickActionBtns.forEach((btn, index) => {
+            const actionIndicator = document.createElement('span');
+            actionIndicator.className = 'shortcut-indicator';
+            actionIndicator.textContent = `Alt+${index + 1}`;
+            btn.appendChild(actionIndicator);
+        });
+        
+        // Add indicator to collapse panel button
+        const panelIndicator = document.createElement('span');
+        panelIndicator.className = 'shortcut-indicator';
+        panelIndicator.textContent = 'Ctrl+P';
+        elements.collapsePanel.appendChild(panelIndicator);
     }
 
     // Set up WebSocket connection
@@ -230,7 +317,55 @@ document.addEventListener('DOMContentLoaded', () => {
             const message = elements.chatInput.value.trim();
             if (message) {
                 sendUserMessage(message);
+                
+                // Save to message history for recall with up/down arrows
+                saveToUserMessageHistory(message);
+                
+                // Clear input and reset history navigation
                 elements.chatInput.value = '';
+                state.userMessageIndex = -1;
+                state.currentDraft = '';
+                autoResizeTextarea(elements.chatInput);
+            }
+        });
+        
+        // Add keyboard navigation for chat input history
+        elements.chatInput.addEventListener('keydown', (e) => {
+            // Handle up/down arrow keys for message history
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                // Save current draft if we're starting navigation
+                if (state.userMessageIndex === -1 && elements.chatInput.value.trim() !== '') {
+                    state.currentDraft = elements.chatInput.value;
+                }
+                
+                // Navigate history
+                if (e.key === 'ArrowUp') {
+                    // Go back in history if possible
+                    const newIndex = Math.min(state.userMessages.length - 1, state.userMessageIndex + 1);
+                    if (newIndex >= 0 && state.userMessages.length > 0) {
+                        state.userMessageIndex = newIndex;
+                        elements.chatInput.value = state.userMessages[state.userMessageIndex];
+                        // Move cursor to end of text
+                        setTimeout(() => {
+                            elements.chatInput.selectionStart = elements.chatInput.value.length;
+                            elements.chatInput.selectionEnd = elements.chatInput.value.length;
+                        }, 0);
+                        e.preventDefault();
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    // Go forward in history or back to draft
+                    if (state.userMessageIndex > 0) {
+                        state.userMessageIndex--;
+                        elements.chatInput.value = state.userMessages[state.userMessageIndex];
+                    } else if (state.userMessageIndex === 0) {
+                        // Return to current draft
+                        state.userMessageIndex = -1;
+                        elements.chatInput.value = state.currentDraft;
+                    }
+                    e.preventDefault();
+                }
+                
+                // Update textarea size
                 autoResizeTextarea(elements.chatInput);
             }
         });
@@ -301,20 +436,103 @@ document.addEventListener('DOMContentLoaded', () => {
             autoResizeTextarea(elements.chatInput);
         });
         
-        // Add keyboard shortcuts
+        // Enhanced keyboard shortcuts and navigation
         document.addEventListener('keydown', (e) => {
-            // Ctrl+K to clear chat
-            if (e.ctrlKey && e.key === 'k') {
+            // Don't capture keyboard events when user is typing in input fields
+            if (document.activeElement === elements.chatInput ||
+                document.activeElement === elements.symbolInput) {
+                
+                // For chat input, handle Shift+Enter to create a new line
+                if (document.activeElement === elements.chatInput && e.key === 'Enter') {
+                    if (e.shiftKey) {
+                        // Let Shift+Enter create a new line (default behavior)
+                        return;
+                    } else {
+                        // Normal Enter will submit the form
+                        e.preventDefault();
+                        elements.chatForm.dispatchEvent(new Event('submit'));
+                    }
+                }
+                
+                return;
+            }
+            
+            // Global shortcuts
+            
+            // Ctrl+K or / to clear chat 
+            if ((e.ctrlKey && e.key === 'k') || (!e.ctrlKey && !e.shiftKey && e.key === '/')) {
                 e.preventDefault();
                 clearChat();
             }
             
-            // Ctrl+L to toggle theme
-            if (e.ctrlKey && e.key === 'l') {
+            // Ctrl+L or Alt+T to toggle theme
+            if ((e.ctrlKey && e.key === 'l') || (e.altKey && e.key === 't')) {
                 e.preventDefault();
                 toggleTheme();
             }
+            
+            // Ctrl+P or Alt+P to toggle data panel
+            if ((e.ctrlKey && e.key === 'p') || (e.altKey && e.key === 'p')) {
+                e.preventDefault();
+                togglePanel();
+            }
+            
+            // Alt+1-4 to trigger quick actions
+            if (e.altKey && ['1', '2', '3', '4'].includes(e.key)) {
+                e.preventDefault();
+                const index = parseInt(e.key) - 1;
+                const quickActions = Array.from(elements.quickActionBtns);
+                if (quickActions.length > index) {
+                    quickActions[index].click();
+                }
+            }
+            
+            // Ctrl+I or Alt+S to focus symbol input
+            if ((e.ctrlKey && e.key === 'i') || (e.altKey && e.key === 's')) {
+                e.preventDefault();
+                elements.symbolInput.focus();
+            }
+            
+            // ESC to blur any active element and focus chat input
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (document.activeElement !== elements.chatInput) {
+                    elements.chatInput.focus();
+                } else {
+                    elements.chatInput.blur();
+                }
+            }
+            
+            // When not focused on an input, allow typing directly in chat input
+            if (!/^(Control|Alt|Shift|Meta|Escape|Tab|F\d+)$/.test(e.key) && 
+                e.key.length === 1 && 
+                !e.ctrlKey && !e.altKey && !e.metaKey) {
+                if (document.activeElement !== elements.chatInput && 
+                    document.activeElement !== elements.symbolInput) {
+                    elements.chatInput.focus();
+                    // Don't need to manually add the key as it will naturally be added to the focused input
+                }
+            }
         });
+    }
+
+    // Save message to user message history
+    function saveToUserMessageHistory(message) {
+        // Don't add if it's identical to the most recent message
+        if (state.userMessages.length > 0 && state.userMessages[0] === message) {
+            return;
+        }
+        
+        // Add to front of array (newest first)
+        state.userMessages.unshift(message);
+        
+        // Keep only the last 50 messages
+        if (state.userMessages.length > 50) {
+            state.userMessages = state.userMessages.slice(0, 50);
+        }
+        
+        // Save to localStorage
+        localStorage.setItem('userMessages', JSON.stringify(state.userMessages));
     }
 
     // Send user message
