@@ -767,6 +767,7 @@ textarea:focus-visible {
     font-family: var(--font-mono);
     line-height: 1;
     opacity: 0.8;
+    z-index: 10;
 }
 
 /* Keyboard help dialog */

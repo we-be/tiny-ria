@@ -127,31 +127,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Add shortcut indicators to UI elements
     function addShortcutIndicators() {
-        // Add indicator to clear button
-        const clearIndicator = document.createElement('span');
-        clearIndicator.className = 'shortcut-indicator';
-        clearIndicator.textContent = 'Ctrl+K';
-        elements.clearChat.appendChild(clearIndicator);
+        // Instead of appending to buttons themselves, create tooltips that appear on hover
+        // Set clear button tooltip
+        elements.clearChat.setAttribute('title', 'Clear Chat (Ctrl+K)');
         
-        // Add indicator to theme toggle button
-        const themeIndicator = document.createElement('span');
-        themeIndicator.className = 'shortcut-indicator';
-        themeIndicator.textContent = 'Ctrl+L';
-        elements.toggleTheme.appendChild(themeIndicator);
+        // Set theme toggle tooltip
+        elements.toggleTheme.setAttribute('title', 'Toggle Theme (Ctrl+L)');
         
-        // Add indicators to quick action buttons
+        // Add tooltips to quick action buttons
         elements.quickActionBtns.forEach((btn, index) => {
-            const actionIndicator = document.createElement('span');
-            actionIndicator.className = 'shortcut-indicator';
-            actionIndicator.textContent = `Alt+${index + 1}`;
-            btn.appendChild(actionIndicator);
+            const shortcut = `Alt+${index + 1}`;
+            const query = btn.dataset.query;
+            btn.setAttribute('title', `${query} (${shortcut})`);
         });
         
-        // Add indicator to collapse panel button
-        const panelIndicator = document.createElement('span');
-        panelIndicator.className = 'shortcut-indicator';
-        panelIndicator.textContent = 'Ctrl+P';
-        elements.collapsePanel.appendChild(panelIndicator);
+        // Set panel collapse tooltip
+        elements.collapsePanel.setAttribute('title', 'Toggle Panel (Ctrl+P)');
     }
 
     // Set up WebSocket connection
@@ -398,9 +389,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Quick action buttons with enhanced UX
-        elements.quickActionBtns.forEach(btn => {
-            // Add tooltip showing the full query 
-            btn.setAttribute('title', btn.dataset.query);
+        elements.quickActionBtns.forEach((btn, index) => {
+            // Don't set tooltip here, it's handled in addShortcutIndicators function
             
             // Add hover effect 
             btn.addEventListener('mouseenter', () => {
