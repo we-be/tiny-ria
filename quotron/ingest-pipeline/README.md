@@ -47,11 +47,13 @@ python cli.py mixed sample_data.json --source api-scraper
 
 ### Process Real-time Data
 
-Simulate processing real-time data (for testing):
+Connect to live data streams:
 
 ```bash
 python cli.py realtime --source api-scraper --duration 60
 ```
+
+Note: This requires setting up a real data source connection
 
 ### List Latest Data
 
