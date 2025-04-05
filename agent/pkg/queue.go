@@ -45,12 +45,12 @@ func NewQueuePublisher(redisAddr string, logger *log.Logger) (*QueuePublisher, e
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	_, err := client.Ping(ctx).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis at %s: %w", redisAddr, err)
 	}
-	
+
 	logger.Printf("Connected to Redis at %s", redisAddr)
 	return &QueuePublisher{
 		client: client,
@@ -65,12 +65,12 @@ func (p *QueuePublisher) PublishAlert(ctx context.Context, alert AlertMessage) e
 	if err != nil {
 		return fmt.Errorf("error marshaling alert: %w", err)
 	}
-	
+
 	// Create values map for XAdd
 	values := map[string]interface{}{
 		"data": string(data),
 	}
-	
+
 	// Add to stream
 	result, err := p.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: AlertStream,
@@ -78,11 +78,11 @@ func (p *QueuePublisher) PublishAlert(ctx context.Context, alert AlertMessage) e
 		Values: values,
 		MaxLen: StreamMaxLen,
 	}).Result()
-	
+
 	if err != nil {
 		return fmt.Errorf("error publishing to stream: %w", err)
 	}
-	
+
 	p.logger.Printf("Published alert for %s with ID: %s", alert.Symbol, result)
 	return nil
 }
@@ -111,29 +111,29 @@ func NewQueueConsumer(redisAddr string, logger *log.Logger, handler AlertHandler
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	_, err := client.Ping(ctx).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis at %s: %w", redisAddr, err)
 	}
-	
+
 	logger.Printf("Connected to Redis at %s", redisAddr)
-	
+
 	// Create consumer group if it doesn't exist
 	_, err = client.XGroupCreateMkStream(ctx, AlertStream, AlertConsumerGroup, "0").Result()
 	if err != nil {
 		// If group already exists, this is fine
-		if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
+		if err.Error() != "BUSYGROUP Consumer Group name already exists" {
 			logger.Printf("Failed to create consumer group: %v", err)
 		} else {
-			logger.Printf("Using existing consumer group %s for stream %s", 
+			logger.Printf("Using existing consumer group %s for stream %s",
 				AlertConsumerGroup, AlertStream)
 		}
 	} else {
-		logger.Printf("Created consumer group %s for stream %s", 
+		logger.Printf("Created consumer group %s for stream %s",
 			AlertConsumerGroup, AlertStream)
 	}
-	
+
 	return &QueueConsumer{
 		client:  client,
 		logger:  logger,
@@ -144,35 +144,35 @@ func NewQueueConsumer(redisAddr string, logger *log.Logger, handler AlertHandler
 // StartConsuming starts consuming messages from the stream
 func (c *QueueConsumer) StartConsuming(ctx context.Context, consumerID string) error {
 	c.logger.Printf("Starting to consume alerts from Redis Stream %s...", AlertStream)
-	
+
 	// Process incoming messages in a loop
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-			
+
 		default:
 			// Read from stream with 2-second blocking timeout
 			streams, err := c.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 				Group:    AlertConsumerGroup,
 				Consumer: consumerID,
 				Streams:  []string{AlertStream, ">"}, // ">" means only undelivered messages
-				Count:    10, // Process up to 10 messages at a time
+				Count:    10,                         // Process up to 10 messages at a time
 				Block:    2 * time.Second,
 			}).Result()
-			
+
 			if err != nil {
 				if err == redis.Nil || err.Error() == "redis: nil" {
 					// No messages available, just continue
 					continue
 				}
-				
+
 				// Real error
 				c.logger.Printf("Error reading from stream: %v", err)
 				time.Sleep(1 * time.Second) // Avoid tight loops on errors
 				continue
 			}
-			
+
 			// Process messages
 			for _, stream := range streams {
 				for _, message := range stream.Messages {
@@ -184,7 +184,7 @@ func (c *QueueConsumer) StartConsuming(ctx context.Context, consumerID string) e
 						c.client.XAck(ctx, AlertStream, AlertConsumerGroup, message.ID)
 						continue
 					}
-					
+
 					// Try to parse the message as an alert
 					var alert AlertMessage
 					err := json.Unmarshal([]byte(data), &alert)
@@ -195,18 +195,18 @@ func (c *QueueConsumer) StartConsuming(ctx context.Context, consumerID string) e
 						c.client.XAck(ctx, AlertStream, AlertConsumerGroup, message.ID)
 						continue
 					}
-					
+
 					// Process the alert
 					err = c.handler(alert)
 					if err != nil {
 						c.logger.Printf("Error processing alert: %v", err)
 					}
-					
+
 					// Acknowledge message after processing attempt
 					c.client.XAck(ctx, AlertStream, AlertConsumerGroup, message.ID)
 				}
 			}
-			
+
 			// Brief pause to avoid CPU spinning if no messages
 			time.Sleep(100 * time.Millisecond)
 		}
