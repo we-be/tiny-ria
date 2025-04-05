@@ -304,46 +304,21 @@ func loadMixedData(filePath string) ([]models.StockQuote, []models.MarketIndex, 
 	return quotes, indices, nil
 }
 
-// Process simulated real-time data
+// Process data from real-time sources
 func processRealtimeData(ctx context.Context, p *pipeline.Pipeline, source models.DataSource, durationSeconds int) {
-	fmt.Printf("Starting real-time processing from %s for %d seconds\n", source, durationSeconds)
-
-	startTime := time.Now()
-	count := 0
-
-	for time.Since(startTime).Seconds() < float64(durationSeconds) {
-		// Simulate receiving a batch of quotes every few seconds
-		batchSize := 5 // Small batch size for real-time processing
-
-		// Generate simulated data
-		quotes := make([]models.StockQuote, batchSize)
-		for i := 0; i < batchSize; i++ {
-			quotes[i] = models.StockQuote{
-				Symbol:        fmt.Sprintf("SIM%d", i),
-				Price:         100.0 + float64(i),
-				Change:        float64(i),
-				ChangePercent: float64(i),
-				Volume:        1000 * int64(i),
-				Timestamp:     time.Now(),
-				Exchange:      models.NYSE,
-			}
-		}
-
-		// Process the batch
-		batchID, quoteIDs, err := p.ProcessStockQuotes(ctx, quotes, source)
-		count++
-
-		if err != nil {
-			fmt.Printf("Batch %d (%s) processed with errors: %v\n", count, batchID, err)
-		} else {
-			fmt.Printf("Batch %d (%s) processed successfully with %d quotes\n", count, batchID, len(quoteIDs))
-		}
-
-		// Sleep for a short time to simulate data arriving at intervals
-		time.Sleep(5 * time.Second)
-	}
-
-	fmt.Printf("Completed real-time processing: %d batches processed\n", count)
+	fmt.Printf("Error: Real-time processing requires an external data source\n")
+	fmt.Printf("Please use one of the following approaches instead:\n")
+	fmt.Printf("1. Use the quotron command-line tool to fetch live data:\n")
+	fmt.Printf("   cd ../../cli && ./quotron fetch --symbol AAPL --output quotes.json\n\n")
+	fmt.Printf("2. Use the api-scraper to get real data:\n")
+	fmt.Printf("   cd ../../api-scraper && ./api-scraper --yahoo --symbol AAPL --json > quote.json\n\n")
+	fmt.Printf("3. Use the scheduler to run periodic data collection:\n")
+	fmt.Printf("   cd ../../scheduler && ./scheduler --config scheduler-config.json\n\n")
+	fmt.Printf("Then process the resulting file with:\n")
+	fmt.Printf("   ./etlcli -quotes -file=path/to/quotes.json\n\n")
+	
+	// No simulated data anymore - the user needs to use real data sources
+	fmt.Printf("Simulated data mode has been removed. Please use real data sources.\n")
 }
 
 // List the latest data from the database

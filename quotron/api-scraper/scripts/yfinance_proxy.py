@@ -49,20 +49,38 @@ if health_module_path not in sys.path:
     sys.path.append(health_module_path)
 logger.info(f"Added health module path: {health_module_path}")
 
-# Create mock health classes for when health client is not available
-class MockHealthStatus:
+# Development-only health status classes - DO NOT USE IN PRODUCTION
+# 
+# To use real health monitoring instead:
+# 1. Install the unified health client:
+#    cd ../../health && go build
+# 
+# 2. Start the health service:
+#    cd ../../health && ./health-server
+#
+# 3. Set the environment variable:
+#    export HEALTH_SERVICE_URL=http://localhost:8085
+#
+class StandaloneHealthStatus:
+    """Health status for development without requiring health service"""
     HEALTHY = "healthy"
     DEGRADED = "degraded" 
     FAILED = "failed"
 
-class MockHealthClient:
+class StandaloneHealthClient:
+    """Standalone health client for development that logs but doesn't require health service"""
     def __init__(self, url):
         self.url = url
+        logger.warning("Using standalone health client - NO HEALTH DATA WILL BE STORED")
+        logger.warning("Set up health service and set HEALTH_SERVICE_URL to enable monitoring")
         
     def report_health(self, source_type, source_name, status, response_time_ms=None, error_message=None, metadata=None):
-        logger.info(f"MOCK: Reporting health for {source_type}/{source_name}: {status}")
+        logger.info(f"DEVELOPMENT MODE: Health report for {source_type}/{source_name}: {status}")
+        if error_message:
+            logger.info(f"  Error: {error_message}")
         
     def get_service_health(self, source_type, source_name):
+        logger.info(f"DEVELOPMENT MODE: Returning placeholder health for {source_type}/{source_name}")
         return {"status": "unknown", "last_check": None, "error_count": 0}
 
 # Import our unified health client
@@ -75,10 +93,10 @@ except ImportError as e:
     logger.warning(f"Health client could not be imported: {e}")
     logger.warning(f"Attempted to import from {health_module_path}")
     
-    # Use mock classes instead
-    logger.info("Using mock health client implementation")
-    HealthClient = MockHealthClient
-    HealthStatus = MockHealthStatus
+    # Use standalone health client instead
+    logger.info("Using standalone health client implementation")
+    HealthClient = StandaloneHealthClient
+    HealthStatus = StandaloneHealthStatus
 
 # Create Flask app
 app = Flask(__name__)
