@@ -154,14 +154,14 @@ def test_auth_engine():
         from service.auth_service import (
             authenticate_user, 
             create_access_token,
-            fake_users_db
+            users_db
         )
         
         # Test authentication with test user
         username = "testuser"
         password = "password123"
         
-        user = authenticate_user(fake_users_db, username, password)
+        user = authenticate_user(users_db, username, password)
         if user:
             logger.info(f"Authentication successful for user: {username}")
             
