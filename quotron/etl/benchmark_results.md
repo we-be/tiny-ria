@@ -4,7 +4,7 @@
 We conducted a benchmark test comparing the Go and Python implementations of the ETL pipeline with identical workloads:
 - Same data structures (stock quotes and market indices)
 - Same batch sizes (10, 100, 1000)
-- Same simulated processing logic
+- Same standardized processing logic
 - Both using concurrent processing (goroutines in Go, multiprocessing in Python)
 
 ## Results

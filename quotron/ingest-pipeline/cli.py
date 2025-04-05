@@ -97,42 +97,20 @@ def process_mixed_file(ingestor: DataIngestor, file_path: str, source: DataSourc
     logger.info(f"Processed {len(quote_ids)} quotes and {len(index_ids)} indices in batch {batch_id}")
 
 def process_realtime_stream(ingestor: DataIngestor, source: DataSource, duration_seconds: int = 60):
-    """Process a simulated real-time stream of data"""
-    logger.info(f"Starting real-time processing from {source} for {duration_seconds} seconds")
-    
-    start_time = time.time()
-    count = 0
-    
-    while time.time() - start_time < duration_seconds:
-        # Simulate receiving a batch of quotes every few seconds
-        batch_size = 5  # Small batch size for real-time
-        
-        # Generate simulated data (in a real system, this would come from a message queue)
-        quotes = []
-        indices = []
-        
-        # Add dummy data for illustration - this would be real data in production
-        for i in range(batch_size):
-            quotes.append({
-                "symbol": f"SIM{i}",
-                "price": 100 + i,
-                "change": i,
-                "change_percent": i,
-                "volume": 1000 * i,
-                "timestamp": datetime.utcnow().isoformat(),
-                "exchange": "NYSE"
-            })
-        
-        # Process the batch
-        batch_id, quote_ids = ingestor.process_stock_quotes(quotes, source)
-        count += 1
-        
-        logger.info(f"Processed real-time batch {count}: {batch_id} with {len(quote_ids)} quotes")
-        
-        # Sleep for a short time to simulate data arriving at intervals
-        time.sleep(5)
-    
-    logger.info(f"Completed real-time processing: {count} batches processed")
+    """Process a real-time stream of data"""
+    logger.error("Real-time processing requires an external data source")
+    logger.error("Please use one of the following approaches instead:")
+    logger.error("1. Connect to a real data source like Redis streams:")
+    logger.error("   python -m quotron.ingest-pipeline.redis_consumer")
+    logger.error("")
+    logger.error("2. Use the API or browser scrapers to obtain real data:")
+    logger.error("   cd ../api-scraper && python scripts/run_proxy.sh")
+    logger.error("   cd ../browser-scraper && python src/scraper.py")
+    logger.error("")
+    logger.error("3. Set up the scheduler to automatically collect data:")
+    logger.error("   cd ../scheduler && python -m scheduler.service start")
+    logger.error("")
+    logger.error("Simulated data mode has been removed. Please use real data sources.")
 
 def list_latest_data(db: Database, limit: int = 10):
     """List the latest stock quotes and market indices"""

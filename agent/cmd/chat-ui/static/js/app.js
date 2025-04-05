@@ -975,26 +975,16 @@ document.addEventListener('DOMContentLoaded', () => {
             state.websocket.send(JSON.stringify({
                 type: 'command',
                 content: 'fetch_indices',
-                data: {
-                    indices: ['S&P 500', 'DOW', 'NASDAQ']
-                }
+                data: {}  // Let the backend determine which indices to return
             }));
         }
         
-        // Show loading indicators until data arrives
+        // Show a single loading indicator until data arrives
         elements.marketIndices.innerHTML = '';
-        ['S&P 500', 'DOW', 'NASDAQ'].forEach(indexName => {
-            const clone = templates.marketIndex.content.cloneNode(true);
-            const nameDiv = clone.querySelector('.index-name');
-            const valueDiv = clone.querySelector('.index-value');
-            const changeDiv = clone.querySelector('.index-change');
-            
-            nameDiv.textContent = indexName;
-            valueDiv.textContent = 'Loading...';
-            changeDiv.textContent = '';
-            
-            elements.marketIndices.appendChild(clone);
-        });
+        const loadingElement = document.createElement('div');
+        loadingElement.className = 'market-index-loading';
+        loadingElement.textContent = 'Loading market indices...';
+        elements.marketIndices.appendChild(loadingElement);
     }
 
     // Handle alert message

@@ -1919,38 +1919,31 @@ def render_service_traces():
             To generate trace data, the system needs to be configured with tracing middleware in each service.
             """)
             
-            # Show an example trace visualization
-            st.subheader("Example Visualization")
+            # Show instruction on how to enable tracing
+            st.subheader("Enabling Service Tracing")
             
-            # Create mock data for the example
-            mock_services = ['scheduler', 'api-service', 'yahoo_finance_proxy', 'database']
-            mock_start_times = [
-                pd.Timestamp.now() - pd.Timedelta(seconds=5),
-                pd.Timestamp.now() - pd.Timedelta(seconds=4.5),
-                pd.Timestamp.now() - pd.Timedelta(seconds=4),
-                pd.Timestamp.now() - pd.Timedelta(seconds=3.5)
-            ]
-            mock_durations = [5000, 3500, 2000, 1000]
+            st.markdown("""
+            To start collecting real service trace data:
             
-            # Create mock traces DataFrame
-            mock_df = pd.DataFrame({
-                'service': mock_services,
-                'start_time': mock_start_times,
-                'duration_ms': mock_durations
-            })
+            1. **Configure Tracing Middleware**: Make sure each service has the tracing middleware enabled.
+                ```go
+                import "github.com/tiny-ria/quotron/middleware"
+                
+                // Add to your HTTP server setup
+                r := mux.NewRouter()
+                r.Use(middleware.TracingMiddleware)
+                ```
+                
+            2. **Run Database Migration**: Ensure the `service_traces` table exists by running:
+                ```bash
+                cd quotron/storage
+                psql -U quotron -d quotron -f migrations/005_service_traces.sql
+                ```
+                
+            3. **Test Inter-Service Communication**: Generate some traffic between services to create trace data.
             
-            # Create a Gantt chart to visualize a mock trace
-            fig = px.timeline(
-                mock_df, 
-                x_start='start_time', 
-                x_end=[t + pd.Timedelta(milliseconds=d) for t, d in zip(mock_start_times, mock_durations)],
-                y='service',
-                color='service',
-                title='Example Service Trace Timeline'
-            )
-            
-            fig.update_yaxes(autorange="reversed")
-            st.plotly_chart(fig, use_container_width=True)
+            Real trace data will populate here once services begin reporting traces.
+            """)
             
         else:
             # Apply filters

@@ -31,7 +31,16 @@ type StockQuote struct {
 	Source        string    `json:"source"`
 }
 
-// Mock implementation of the CryptoQuoteJob for testing
+// Test-only implementation of the CryptoQuoteJob
+//
+// IMPORTANT: This is a testing utility that uses real data from Yahoo Finance.
+// It is NOT mock data but an actual implementation for testing integration between
+// components without requiring the full scheduler system.
+//
+// Usage:
+// 1. Build: go build -o crypto_test
+// 2. Run with real symbols: ./crypto_test --symbols BTC-USD,ETH-USD
+// 3. Monitor Redis: ./crypto_test --monitor
 func main() {
 	// Parse command-line flags
 	symbolsFlag := flag.String("symbols", "BTC-USD,ETH-USD,SOL-USD", "Comma-separated list of crypto symbols")
