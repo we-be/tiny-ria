@@ -66,6 +66,32 @@ cd quotron
 
 See `agent/README.md` and `quotron/README.md` for more detailed documentation.
 
+## CLI Reference
+
+<!-- CLI_HELP_START -->
+```
+Usage:
+  quotron [command]
+
+Available Commands:
+  completion  Generate the autocompletion script for the specified shell
+  fetch       Fetch data from various sources
+  health      Check service health
+  help        Help about any command
+  scheduler   Manage scheduler jobs
+  start       Start services
+  stop        Stop services
+  test        Run tests
+  version     Print version information
+
+Flags:
+  -h, --help      help for quotron
+  -v, --verbose   enable verbose output
+
+Use "quotron [command] --help" for more information about a command.
+```
+<!-- CLI_HELP_END -->
+
 ## Development
 
 ### Requirements
