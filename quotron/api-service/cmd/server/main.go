@@ -274,10 +274,12 @@ func (a *API) getIndexHandler(w http.ResponseWriter, r *http.Request) {
 func (a *API) getDataSourceHealthHandler(w http.ResponseWriter, r *http.Request) {
 	reports, err := a.getDataSourceHealth()
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error retrieving data source health")
+		// Return a more descriptive error message with proper HTTP status code
+		respondWithError(w, http.StatusServiceUnavailable, fmt.Sprintf("Error retrieving data source health: %v", err))
 		return
 	}
 
+	// Even if the list is empty, return a 200 OK with empty array instead of fake data
 	respondWithJSON(w, http.StatusOK, reports)
 }
 
@@ -1335,12 +1337,12 @@ func (a *API) getDataSourceHealth() ([]APIHealthReport, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	
-	// Try to get health reports from the unified health service
+	// Get health reports from the unified health service
 	reports, err := a.healthClient.GetAllHealth(ctx)
 	if err != nil {
 		log.Printf("Error getting health reports from unified service: %v", err)
-		// Fall back to mock data on error
-		return a.getMockDataSourceHealth(), nil
+		// Return actual error instead of falling back to mock data
+		return nil, fmt.Errorf("failed to retrieve health data: %w", err)
 	}
 
 	// Filter reports by type and convert to API format
@@ -1357,52 +1359,14 @@ func (a *API) getDataSourceHealth() ([]APIHealthReport, error) {
 		}
 	}
 	
-	// If no reports were found, return mock data
-	if len(sources) == 0 {
-		return a.getMockDataSourceHealth(), nil
-	}
+	// If no reports were found, return empty list with no error
+	// Rather than returning fake data, the API caller will see an empty array
 	
 	return sources, nil
 }
 
-// getMockDataSourceHealth returns mock health data for backward compatibility
-func (a *API) getMockDataSourceHealth() []APIHealthReport {
-	// Use client health data if available
-	clientHealth := a.clientManager.GetClientHealth()
-	
-	sources := []APIHealthReport{}
-	for name, status := range clientHealth {
-		sources = append(sources, APIHealthReport{
-			SourceType:   "data_source",
-			SourceName:   name,
-			Status:       string(client.LegacyToUnifiedHealth(status)),
-			LastCheck:    time.Now(),
-			ErrorMessage: "Using local client health data",
-		})
-	}
-	
-	// If no clients were found, return default mock data
-	if len(sources) == 0 {
-		sources = []APIHealthReport{
-			{
-				SourceType:   "data_source",
-				SourceName:   "Yahoo Finance",
-				Status:       "unknown",
-				LastCheck:    time.Now(),
-				ErrorMessage: "No health data available",
-			},
-			{
-				SourceType:   "data_source",
-				SourceName:   "Alpha Vantage",
-				Status:       "unknown",
-				LastCheck:    time.Now(),
-				ErrorMessage: "No health data available",
-			},
-		}
-	}
-	
-	return sources
-}
+// Removed getMockDataSourceHealth function as part of issue #19
+// We now return proper errors instead of mock data
 
 // Start starts the HTTP server
 func (a *API) Start() error {
