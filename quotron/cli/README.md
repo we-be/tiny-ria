@@ -1,6 +1,6 @@
 # Quotron CLI
 
-[![CLI Build:3b38ced](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%20Build%3A3b38ced&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
+[![CLI Build:3231b18](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%20Build%3A3231b18&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
 
 This CLI provides a unified interface for managing all Quotron services and operations.
 
