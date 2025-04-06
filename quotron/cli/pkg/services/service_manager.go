@@ -172,6 +172,15 @@ func (sm *ServiceManager) StopServices(services ServiceList) error {
 		} else {
 			etlServiceMutex.Unlock()
 			// Fall back to traditional process kill for backward compatibility
+			// Update Redis status even for external process
+			if sm.redis != nil {
+				ctx := context.Background()
+				sm.redis.HSet(ctx, "quotron:services:etl", map[string]interface{}{
+					"status":    "stopped",
+					"timestamp": time.Now().Unix(),
+				})
+			}
+			
 			err := sm.stopService("ETL Service", sm.config.ETLServicePIDFile, "etl.*-start")
 			if err != nil {
 				return fmt.Errorf("failed to stop ETL Service: %w", err)
@@ -263,26 +272,38 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 			ctx := context.Background()
 			serviceInfo, err := sm.redis.HGetAll(ctx, "quotron:services:etl").Result()
 			if err == nil && len(serviceInfo) > 0 {
+				fmt.Printf("Debug: Redis service status: %v\n", serviceInfo)
+				
 				// Check if the service is reporting as running
 				if serviceInfo["status"] == "running" {
 					// Check if the PID is still running
 					pidStr, ok := serviceInfo["pid"]
 					if ok {
 						pid, err := strconv.Atoi(pidStr)
-						if err == nil && pid > 0 && isPidRunning(pid) {
-							// Check if timestamp is recent (within last minute)
-							tsStr, tsOk := serviceInfo["timestamp"]
-							if !tsOk {
-								// No timestamp, assume it's running
-								status.ETLService = true
-							} else {
-								ts, err := strconv.ParseInt(tsStr, 10, 64)
-								if err == nil {
-									lastSeen := time.Unix(ts, 0)
-									if time.Since(lastSeen) < time.Minute {
-										status.ETLService = true
+						if err == nil && pid > 0 {
+							fmt.Printf("Debug: Checking PID %d from Redis...\n", pid)
+							if isPidRunning(pid) {
+								fmt.Printf("Debug: PID %d is running\n", pid)
+								// Check if timestamp is recent (within last 5 minutes)
+								tsStr, tsOk := serviceInfo["timestamp"]
+								if !tsOk {
+									// No timestamp, assume it's running
+									fmt.Println("Debug: No timestamp, assuming service is running")
+									status.ETLService = true
+								} else {
+									ts, err := strconv.ParseInt(tsStr, 10, 64)
+									if err == nil {
+										lastSeen := time.Unix(ts, 0)
+										timeSince := time.Since(lastSeen)
+										fmt.Printf("Debug: Last update was %s ago\n", timeSince)
+										if timeSince < 5*time.Minute {
+											fmt.Println("Debug: Update is recent, service is running")
+											status.ETLService = true
+										}
 									}
 								}
+							} else {
+								fmt.Printf("Debug: PID %d is NOT running\n", pid)
 							}
 						}
 					}
