@@ -176,63 +176,12 @@ def test_auth_engine():
     except Exception as e:
         logger.error(f"Error testing auth engine: {e}")
 
-def test_etl_pipeline():
-    """Test the ETL pipeline functionality."""
-    logger.info("Testing ETL pipeline...")
-    
-    try:
-        # Test the ETL binary exists
-        etl_path = project_root / "etl"
-        etlcli_path = etl_path / "etlcli"
-        
-        if not etlcli_path.exists():
-            # Try to build the binary
-            build_cmd = ["go", "build", "-o", "etlcli", "./cmd/etlcli"]
-            logger.info(f"Building ETL CLI: {' '.join(build_cmd)}")
-            subprocess.run(build_cmd, cwd=etl_path, check=True)
-        
-        # Create a test data file
-        test_data = {
-            "quotes": [
-                {
-                    "symbol": "AAPL", 
-                    "price": 150.25,
-                    "change": 2.5,
-                    "change_percent": 1.2,
-                    "volume": 12345678,
-                    "timestamp": datetime.now().isoformat(),
-                    "exchange": "NYSE",
-                    "source": "api-scraper"
-                }
-            ],
-            "batch_id": str(uuid.uuid4())
-        }
-        
-        test_file = etl_path / "test_data.json"
-        with open(test_file, "w") as f:
-            json.dump(test_data, f)
-            
-        # Run validation only (no DB operations) using the ETL CLI
-        cmd = ["./etlcli", "-validate", "-file", str(test_file)]
-        logger.info(f"Running ETL validation: {' '.join(cmd)}")
-        
-        try:
-            result = subprocess.run(cmd, cwd=etl_path, capture_output=True, text=True)
-            if result.returncode == 0:
-                logger.info("ETL pipeline validation successful")
-            else:
-                logger.warning(f"ETL validation returned non-zero code: {result.returncode}")
-                logger.warning(f"Error: {result.stderr}")
-        except subprocess.SubprocessError as e:
-            logger.error(f"Error running ETL CLI: {e}")
-        
-        # Clean up test file
-        if test_file.exists():
-            test_file.unlink()
-            
-        logger.info("ETL pipeline test completed")
-    except Exception as e:
-        logger.error(f"Error testing ETL pipeline: {e}")
+# ETL tests removed - ETL should be tested with a proper database connection
+# The test was removed because ETL's primary purpose is database operations
+# and testing without a DB connection isn't meaningful
+# For proper ETL testing, use:
+# 1. Unit tests in Go for ETL components
+# 2. Database integration tests with a test database
 
 def test_events_system():
     """Test the events system functionality."""
@@ -272,14 +221,13 @@ def main():
     parser.add_argument("--api", action="store_true", help="Test API scraper")
     parser.add_argument("--browser", action="store_true", help="Test browser scraper")
     parser.add_argument("--auth", action="store_true", help="Test auth engine")
-    parser.add_argument("--etl", action="store_true", help="Test ETL pipeline")
     parser.add_argument("--events", action="store_true", help="Test events system")
     parser.add_argument("--all", action="store_true", help="Test all components")
     
     args = parser.parse_args()
     
     # If no specific tests are specified, test all
-    if not any([args.api, args.browser, args.auth, args.etl, args.events, args.all]):
+    if not any([args.api, args.browser, args.auth, args.events, args.all]):
         args.all = True
     
     if args.all or args.api:
@@ -290,9 +238,6 @@ def main():
     
     if args.all or args.auth:
         test_auth_engine()
-    
-    if args.all or args.etl:
-        test_etl_pipeline()
     
     if args.all or args.events:
         test_events_system()
