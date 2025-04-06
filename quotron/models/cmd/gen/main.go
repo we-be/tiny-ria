@@ -21,9 +21,9 @@ func main() {
 		os.Exit(1)
 	}
 	
-	// Generate Python models
-	pythonPath := "../../../ingest-pipeline/schemas/finance_models.py"
-	err = models.GeneratePythonModels(schemaPath, pythonPath)
+	// Generate Go models for ETL
+	etlPath := "../../../etl/internal/models/finance_schema.go"
+	err = models.GenerateGoModels(schemaPath, etlPath)
 	if err != nil {
 		fmt.Printf("Error generating Python models: %v\n", err)
 		os.Exit(1)

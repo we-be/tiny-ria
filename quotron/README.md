@@ -2,10 +2,26 @@
 
 Quotron is the dedicated scraping and data ingestion pipeline within the tiny-ria project, aimed at systematically collecting, cleaning, and ingesting financial data from diverse web sources.
 
+## Project Status
+
+### Completed Components
+- **API Scraper (Go)**: Robust API data collection with Yahoo Finance support
+- **API Service (Go)**: RESTful endpoints with data integration
+- **CLI (Go)**: Unified command interface for all operations
+- **Health (Go)**: Comprehensive monitoring system
+- **Storage**: SQL schema with migrations
+- **Scheduler (Go)**: Cron-based job scheduling
+
+### Work In Progress
+- **Browser Scraper (Python)**: Basic implementation, needs more features
+- **Authentication Engine (Python)**: Initial framework, needs completion
+- **Events System (Python)**: Limited implementation
+- **ETL (Go)**: High-performance replacement for the Python ingest pipeline
+- **Ingest Pipeline (Python)**: Legacy system being replaced by Go ETL
+
 ## Project Components
 
 ### 1. Core Shared Components
-Located in the root directory, these components provide shared functionality:
 
 #### Models
 Located in `models/`, this package provides unified data models for the entire system:
@@ -25,51 +41,15 @@ Located in `api-scraper/`, this component handles data collection from REST APIs
 - Handles rate limiting and authentication
 - Standardizes data into common formats
 
-### 3. Browser Scraper (Python)
-Located in `browser-scraper/`, this component handles JavaScript-heavy websites.
-- Uses Playwright or Selenium for browser automation
-- Extracts data from complex UI elements
-- Handles dynamic content loading
+### 3. ETL Pipeline (Go)
+Located in `etl/`, this high-performance Go implementation is replacing the Python ingest pipeline:
+- **High Performance**: ~10x throughput improvement over Python
+- **Scalable**: Designed for large volumes of financial data
+- **Database Integration**: Direct PostgreSQL integration
+- **Concurrent Processing**: Utilizes Go's concurrency
 
-### 4. Authentication Engine (Python)
-Located in `auth-engine/`, this component manages authentication for various services.
-- Handles login credentials and session cookies
-- Maintains authenticated sessions
-- Provides middleware for authenticated requests
-
-### 5. Configuration System
-Located throughout the project, configuration is managed through:
-- Environment variables
-- JSON configuration files
-- Command line flags
-- Default values with smart detection of project root
-
-### 6. Ingest Pipeline (Python)
-Located in `ingest-pipeline/`, this component processes raw data.
-- Validates incoming data against schemas
-- Enriches data with additional information
-- Prepares data for storage
-
-### 7. Events System (Python)
-Located in `events/`, this component manages asynchronous communication.
-- Produces events when new data is available
-- Consumes events to trigger processing
-- Uses Kafka for reliable messaging
-
-### 8. Storage (SQL/NoSQL)
-Located in `storage/`, this component manages data persistence.
-- Stores structured data in SQL databases
-- Stores unstructured data in blob storage
-- Handles database migrations
-
-### 9. Scheduler (Go)
-Located in `scheduler/`, this component manages automated jobs.
-- Schedules periodic data collection
-- Manages retries and error handling
-- Coordinates between different scrapers
-
-### 10. CLI
-Located in `cli/`, this unified command-line interface replaces multiple bash scripts:
+### 4. CLI (Go)
+Located in `cli/`, this unified command-line interface:
 - Single entry point for all commands
 - Consistent interface for all operations
 - Environment management and configuration

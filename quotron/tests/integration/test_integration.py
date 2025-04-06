@@ -176,37 +176,63 @@ def test_auth_engine():
     except Exception as e:
         logger.error(f"Error testing auth engine: {e}")
 
-def test_ingest_pipeline():
-    """Test the ingest pipeline functionality."""
-    logger.info("Testing ingest pipeline...")
+def test_etl_pipeline():
+    """Test the ETL pipeline functionality."""
+    logger.info("Testing ETL pipeline...")
     
     try:
-        # Import the schema directly without the validator (which uses pandas)
-        sys.path.append(str(project_root / "ingest-pipeline"))
-        from schemas.finance_schema import StockQuote, Exchange, DataSource
+        # Test the ETL binary exists
+        etl_path = project_root / "etl"
+        etlcli_path = etl_path / "etlcli"
         
-        # Create test data
-        test_quote = {
-            "symbol": "AAPL",
-            "price": 150.25,
-            "change": 2.5,
-            "change_percent": 1.2,
-            "volume": 12345678,
-            "timestamp": datetime.now(),
-            "exchange": "NYSE",
-            "source": "api-scraper"
+        if not etlcli_path.exists():
+            # Try to build the binary
+            build_cmd = ["go", "build", "-o", "etlcli", "./cmd/etlcli"]
+            logger.info(f"Building ETL CLI: {' '.join(build_cmd)}")
+            subprocess.run(build_cmd, cwd=etl_path, check=True)
+        
+        # Create a test data file
+        test_data = {
+            "quotes": [
+                {
+                    "symbol": "AAPL", 
+                    "price": 150.25,
+                    "change": 2.5,
+                    "change_percent": 1.2,
+                    "volume": 12345678,
+                    "timestamp": datetime.now().isoformat(),
+                    "exchange": "NYSE",
+                    "source": "api-scraper"
+                }
+            ],
+            "batch_id": str(uuid.uuid4())
         }
         
-        # Validate the data using the schema directly
-        quote = StockQuote(**test_quote)
+        test_file = etl_path / "test_data.json"
+        with open(test_file, "w") as f:
+            json.dump(test_data, f)
+            
+        # Run validation only (no DB operations) using the ETL CLI
+        cmd = ["./etlcli", "-validate", "-file", str(test_file)]
+        logger.info(f"Running ETL validation: {' '.join(cmd)}")
         
-        if quote:
-            logger.info(f"Quote validation successful: {quote.symbol} ${quote.price}")
-            logger.info("Ingest pipeline test successful")
-        else:
-            logger.error("Quote validation failed")
+        try:
+            result = subprocess.run(cmd, cwd=etl_path, capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info("ETL pipeline validation successful")
+            else:
+                logger.warning(f"ETL validation returned non-zero code: {result.returncode}")
+                logger.warning(f"Error: {result.stderr}")
+        except subprocess.SubprocessError as e:
+            logger.error(f"Error running ETL CLI: {e}")
+        
+        # Clean up test file
+        if test_file.exists():
+            test_file.unlink()
+            
+        logger.info("ETL pipeline test completed")
     except Exception as e:
-        logger.error(f"Error testing ingest pipeline: {e}")
+        logger.error(f"Error testing ETL pipeline: {e}")
 
 def test_events_system():
     """Test the events system functionality."""
@@ -246,14 +272,14 @@ def main():
     parser.add_argument("--api", action="store_true", help="Test API scraper")
     parser.add_argument("--browser", action="store_true", help="Test browser scraper")
     parser.add_argument("--auth", action="store_true", help="Test auth engine")
-    parser.add_argument("--ingest", action="store_true", help="Test ingest pipeline")
+    parser.add_argument("--etl", action="store_true", help="Test ETL pipeline")
     parser.add_argument("--events", action="store_true", help="Test events system")
     parser.add_argument("--all", action="store_true", help="Test all components")
     
     args = parser.parse_args()
     
     # If no specific tests are specified, test all
-    if not any([args.api, args.browser, args.auth, args.ingest, args.events, args.all]):
+    if not any([args.api, args.browser, args.auth, args.etl, args.events, args.all]):
         args.all = True
     
     if args.all or args.api:
@@ -265,8 +291,8 @@ def main():
     if args.all or args.auth:
         test_auth_engine()
     
-    if args.all or args.ingest:
-        test_ingest_pipeline()
+    if args.all or args.etl:
+        test_etl_pipeline()
     
     if args.all or args.events:
         test_events_system()

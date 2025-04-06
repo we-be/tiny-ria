@@ -27,6 +27,7 @@ func main() {
 		mixedCmd      = flag.Bool("mixed", false, "Process a file containing both quotes and indices")
 		realtimeCmd   = flag.Bool("realtime", false, "Process simulated real-time data")
 		listCmd       = flag.Bool("list", false, "List the latest data")
+		validateCmd   = flag.Bool("validate", false, "Validate data without writing to database")
 		
 		// File options
 		filePath      = flag.String("file", "", "Path to the JSON file containing financial data")
@@ -186,8 +187,52 @@ func main() {
 		listLatestData(ctx, database, *limit, *symbols, *indexList)
 	}
 
+	// Handle validation
+	if *validateCmd {
+		if *filePath == "" {
+			log.Fatal("File path is required for validate command")
+		}
+		
+		fmt.Println("Validating data file...")
+		
+		// Load and validate data based on file structure
+		var err error
+		var totalItems int
+		
+		// First try mixed data
+		quotes, indices, err1 := loadMixedData(*filePath)
+		if err1 == nil {
+			fmt.Printf("Successfully validated %d quotes and %d indices\n", len(quotes), len(indices))
+			totalItems = len(quotes) + len(indices)
+		} else {
+			// Try quotes only
+			quotes, err2 := loadQuotes(*filePath)
+			if err2 == nil {
+				fmt.Printf("Successfully validated %d quotes\n", len(quotes))
+				totalItems = len(quotes)
+			} else {
+				// Try indices only
+				indices, err3 := loadIndices(*filePath)
+				if err3 == nil {
+					fmt.Printf("Successfully validated %d indices\n", len(indices))
+					totalItems = len(indices)
+				} else {
+					// All validation attempts failed
+					fmt.Printf("Validation errors:\n")
+					fmt.Printf("- Mixed data: %v\n", err1)
+					fmt.Printf("- Quotes: %v\n", err2)
+					fmt.Printf("- Indices: %v\n", err3)
+					os.Exit(1)
+				}
+			}
+		}
+		
+		fmt.Printf("Validation complete. Found %d valid items.\n", totalItems)
+		return
+	}
+
 	// If no command is specified, show usage
-	if !(*setupCmd || *quotesCmd || *indicesCmd || *mixedCmd || *realtimeCmd || *listCmd) {
+	if !(*setupCmd || *quotesCmd || *indicesCmd || *mixedCmd || *realtimeCmd || *listCmd || *validateCmd) {
 		flag.Usage()
 	}
 }
