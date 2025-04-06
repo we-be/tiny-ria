@@ -276,34 +276,22 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 				
 				// Check if the service is reporting as running
 				if serviceInfo["status"] == "running" {
-					// Check if the PID is still running
-					pidStr, ok := serviceInfo["pid"]
-					if ok {
-						pid, err := strconv.Atoi(pidStr)
-						if err == nil && pid > 0 {
-							fmt.Printf("Debug: Checking PID %d from Redis...\n", pid)
-							if isPidRunning(pid) {
-								fmt.Printf("Debug: PID %d is running\n", pid)
-								// Check if timestamp is recent (within last 5 minutes)
-								tsStr, tsOk := serviceInfo["timestamp"]
-								if !tsOk {
-									// No timestamp, assume it's running
-									fmt.Println("Debug: No timestamp, assuming service is running")
-									status.ETLService = true
-								} else {
-									ts, err := strconv.ParseInt(tsStr, 10, 64)
-									if err == nil {
-										lastSeen := time.Unix(ts, 0)
-										timeSince := time.Since(lastSeen)
-										fmt.Printf("Debug: Last update was %s ago\n", timeSince)
-										if timeSince < 5*time.Minute {
-											fmt.Println("Debug: Update is recent, service is running")
-											status.ETLService = true
-										}
-									}
-								}
+					// With heartbeat mechanism we only need to check timestamp
+					tsStr, tsOk := serviceInfo["timestamp"]
+					if !tsOk {
+						// No timestamp, assume it's not running
+						fmt.Println("Debug: No timestamp, assuming service is NOT running")
+					} else {
+						ts, err := strconv.ParseInt(tsStr, 10, 64)
+						if err == nil {
+							lastSeen := time.Unix(ts, 0)
+							timeSince := time.Since(lastSeen)
+							fmt.Printf("Debug: Last heartbeat was %s ago\n", timeSince)
+							if timeSince < 30*time.Second {
+								fmt.Println("Debug: Heartbeat is recent, service is running")
+								status.ETLService = true
 							} else {
-								fmt.Printf("Debug: PID %d is NOT running\n", pid)
+								fmt.Println("Debug: Heartbeat is stale, service may have crashed")
 							}
 						}
 					}
@@ -703,6 +691,36 @@ func (sm *ServiceManager) startETLService(ctx context.Context) error {
 	etlCtx, cancel := context.WithCancel(context.Background())
 	etlServiceCancel = cancel
 	
+	// Create a background goroutine for heartbeat updates
+	if sm.redis != nil {
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			
+			for {
+				select {
+				case <-etlCtx.Done():
+					return
+				case <-ticker.C:
+					// Update heartbeat timestamp while service is running
+					if etlService != nil && etlService.IsRunning() {
+						ctx := context.Background()
+						err := sm.redis.HSet(ctx, "quotron:services:etl", map[string]interface{}{
+							"timestamp": time.Now().Unix(),
+						}).Err()
+						
+						if err != nil {
+							fmt.Printf("Warning: Failed to update ETL service heartbeat: %v\n", err)
+						} else {
+							fmt.Println("Updated ETL service heartbeat in Redis")
+						}
+					}
+				}
+			}
+		}()
+	}
+	
+	// Graceful shutdown goroutine
 	go func() {
 		<-etlCtx.Done()
 		etlServiceMutex.Lock()
