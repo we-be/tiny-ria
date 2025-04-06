@@ -2,11 +2,27 @@
 
 A high-performance Go-based ETL (Extract, Transform, Load) pipeline for processing financial data in the Quotron system.
 
+## IMPORTANT: CLI Integration Only
+
+The ETL pipeline is **NOT** a standalone application. It is designed to be used exclusively by the Quotron CLI. There is no separate binary or command-line interface for ETL.
+
+To interact with the ETL pipeline, use the Quotron CLI:
+
+```bash
+# Process a JSON file containing stock quotes
+quotron etl process-quotes path/to/quotes.json --source api-scraper
+
+# Process a JSON file containing market indices
+quotron etl process-indices path/to/indices.json --source browser-scraper
+
+# Process a JSON file containing both quotes and indices
+quotron etl process-mixed path/to/mixed.json --source api-scraper
+```
+
 ## Features
 
-- **High Performance**: Utilizes Go's concurrency with goroutines for parallel processing
+- **High Performance**: Utilizes Go's concurrency with goroutines for parallel processing (~10x faster than Python)
 - **Scalable**: Designed to handle large volumes of financial data
-- **Configurable**: Flexible configuration options for different use cases
 - **Database Integration**: Direct PostgreSQL integration with connection pooling
 - **Data Validation**: Robust validation of financial data
 - **Statistical Analysis**: Concurrent computation of statistical metrics
@@ -18,7 +34,7 @@ A high-performance Go-based ETL (Extract, Transform, Load) pipeline for processi
 - **Enrichment**: Data enrichment and statistical computation
 - **Database**: PostgreSQL database operations with connection pooling
 - **Pipeline**: Core ETL pipeline with parallel processing
-- **CLI**: Command-line interface for the pipeline
+- **Service**: Interface for CLI integration
 
 ## Dependencies
 
@@ -29,56 +45,28 @@ A high-performance Go-based ETL (Extract, Transform, Load) pipeline for processi
   - github.com/lib/pq
   - github.com/go-playground/validator/v10
 
-## Installation
+## Database Configuration
 
-```bash
-# Clone the repository
-git clone https://github.com/we-be/tiny-ria.git
-cd tiny-ria/quotron/etl
+The ETL pipeline reads database configuration from:
 
-# Install dependencies
-go mod tidy
+1. Environment variables:
+   - `DB_HOST`: Database hostname (default: "localhost")
+   - `DB_PORT`: Database port (default: 5432)
+   - `DB_NAME`: Database name (default: "quotron")
+   - `DB_USER`: Database username (default: "quotron")
+   - `DB_PASSWORD`: Database password (default: "quotron")
+   - `DB_SSL_MODE`: SSL mode (default: "disable")
 
-# Build the CLI
-go build -o etlcli ./cmd/etlcli
+2. `.env` file in the current directory, parent directory, or grandparent directory.
+
+Example `.env` file:
 ```
-
-## Usage
-
-```bash
-# Process a JSON file containing stock quotes
-./etlcli -quotes -file path/to/quotes.json -source api-scraper
-
-# Process a JSON file containing market indices
-./etlcli -indices -file path/to/indices.json -source browser-scraper
-
-# Process a JSON file containing both quotes and indices
-./etlcli -mixed -file path/to/mixed.json -source api-scraper
-
-# List the latest data from the database
-./etlcli -list -limit 10
-
-# Run in real-time simulation mode for 5 minutes
-./etlcli -realtime -duration 300
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=quotron
+DB_USER=postgres
+DB_PASSWORD=postgres
 ```
-
-## Configuration
-
-The ETL pipeline can be configured via command-line flags:
-
-### Database Configuration
-
-- `-db-host`: Database hostname (default: from env or "localhost")
-- `-db-port`: Database port (default: from env or 5432)
-- `-db-name`: Database name (default: from env or "quotron")
-- `-db-user`: Database username (default: from env or "quotron")
-- `-db-pass`: Database password (default: from env or "quotron")
-
-### Processing Options
-
-- `-concurrency`: Number of concurrent workers (default: 4)
-- `-retries`: Number of retry attempts for database operations (default: 3)
-- `-allow-old-data`: Allow processing of historical data (default: false)
 
 ## Performance Comparison
 
@@ -98,6 +86,7 @@ The ETL pipeline integrates with:
 - **API Scraper**: Processes data from the Go-based API scraper
 - **Browser Scraper**: Processes data from the Python-based browser scraper
 - **Scheduler**: Can be triggered by the scheduler for automated processing
+- **CLI**: The only entry point for ETL operations
 
 ## Development
 
@@ -105,21 +94,19 @@ The ETL pipeline integrates with:
 
 ```
 quotron/etl/
-├── cmd/
-│   └── etlcli/        # Command-line interface
 ├── internal/
 │   ├── models/        # Data models
-│   ├── validation/    # Data validation
-│   ├── enrichment/    # Data enrichment
 │   ├── db/            # Database operations
 │   └── pipeline/      # Core pipeline implementation
+├── pkg/
+│   └── etlservice/    # Service interface for CLI
 └── README.md          # Documentation
 ```
 
 ### Testing
 
 ```bash
-# Run all tests
+# Run all tests (requires database connection)
 go test ./...
 
 # Run tests with race detector
@@ -128,3 +115,9 @@ go test -race ./...
 # Run benchmarks
 go test -bench=. ./...
 ```
+
+### Testing Requirements
+
+- All tests require a valid database connection
+- ETL functionality is tightly coupled with database operations
+- Tests will fail if a database connection cannot be established
