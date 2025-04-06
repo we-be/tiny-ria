@@ -272,7 +272,8 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 			ctx := context.Background()
 			serviceInfo, err := sm.redis.HGetAll(ctx, "quotron:services:etl").Result()
 			if err == nil && len(serviceInfo) > 0 {
-				fmt.Printf("Debug: Redis service status: %v\n", serviceInfo)
+				// Only show debug info when verbose flag is set
+				// fmt.Printf("Debug: Redis service status: %v\n", serviceInfo)
 				
 				// Check if the service is reporting as running
 				if serviceInfo["status"] == "running" {
@@ -280,18 +281,18 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 					tsStr, tsOk := serviceInfo["timestamp"]
 					if !tsOk {
 						// No timestamp, assume it's not running
-						fmt.Println("Debug: No timestamp, assuming service is NOT running")
+						// fmt.Println("Debug: No timestamp, assuming service is NOT running")
 					} else {
 						ts, err := strconv.ParseInt(tsStr, 10, 64)
 						if err == nil {
 							lastSeen := time.Unix(ts, 0)
 							timeSince := time.Since(lastSeen)
-							fmt.Printf("Debug: Last heartbeat was %s ago\n", timeSince)
+							// fmt.Printf("Debug: Last heartbeat was %s ago\n", timeSince)
 							if timeSince < 30*time.Second {
-								fmt.Println("Debug: Heartbeat is recent, service is running")
+								// fmt.Println("Debug: Heartbeat is recent, service is running")
 								status.ETLService = true
 							} else {
-								fmt.Println("Debug: Heartbeat is stale, service may have crashed")
+								// fmt.Println("Debug: Heartbeat is stale, service may have crashed")
 							}
 						}
 					}
@@ -712,7 +713,8 @@ func (sm *ServiceManager) startETLService(ctx context.Context) error {
 						if err != nil {
 							fmt.Printf("Warning: Failed to update ETL service heartbeat: %v\n", err)
 						} else {
-							fmt.Println("Updated ETL service heartbeat in Redis")
+							// Debug output disabled for heartbeat to reduce noise
+							// fmt.Println("Updated ETL service heartbeat in Redis")
 						}
 					}
 				}
