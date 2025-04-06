@@ -12,8 +12,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/we-be/tiny-ria/quotron/cli/pkg/etl"
 )
 
 // ServiceList defines which services should be operated on
@@ -117,9 +120,31 @@ func (sm *ServiceManager) StopServices(services ServiceList) error {
 	}
 
 	if services.ETLService {
-		err := sm.stopService("ETL Service", sm.config.ETLServicePIDFile, "etl.*-start")
-		if err != nil {
-			return fmt.Errorf("failed to stop ETL Service: %w", err)
+		// First try to stop the in-process ETL service
+		etlServiceMutex.Lock()
+		if etlService != nil && etlService.IsRunning() {
+			fmt.Println("Stopping in-process ETL service...")
+			etlService.Stop()
+			etlService = nil
+			if etlServiceCancel != nil {
+				etlServiceCancel()
+				etlServiceCancel = nil
+			}
+			fmt.Println("ETL service stopped successfully")
+			
+			// Remove PID file
+			if err := os.Remove(sm.config.ETLServicePIDFile); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("Warning: Failed to remove ETL PID file: %v\n", err)
+			}
+			
+			etlServiceMutex.Unlock()
+		} else {
+			etlServiceMutex.Unlock()
+			// Fall back to traditional process kill for backward compatibility
+			err := sm.stopService("ETL Service", sm.config.ETLServicePIDFile, "etl.*-start")
+			if err != nil {
+				return fmt.Errorf("failed to stop ETL Service: %w", err)
+			}
 		}
 	}
 
@@ -195,15 +220,22 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 
 		
 	// Check ETL Service
-	// First check PID file
-	etlPid, err := sm.readPid(sm.config.ETLServicePIDFile)
-	if err == nil && etlPid > 0 && isPidRunning(etlPid) {
+	etlServiceMutex.RLock()
+	if etlService != nil && etlService.IsRunning() {
 		status.ETLService = true
+		etlServiceMutex.RUnlock()
 	} else {
-		// Then check for any ETL processes running
-		cmd := exec.Command("pgrep", "-f", "etl.*-start")
-		if cmd.Run() == nil {
+		etlServiceMutex.RUnlock()
+		// First check PID file
+		etlPid, err := sm.readPid(sm.config.ETLServicePIDFile)
+		if err == nil && etlPid > 0 && isPidRunning(etlPid) {
 			status.ETLService = true
+		} else {
+			// Then check for any ETL processes running
+			cmd := exec.Command("pgrep", "-f", "etl.*-start")
+			if cmd.Run() == nil {
+				status.ETLService = true
+			}
 		}
 	}
 
@@ -507,100 +539,77 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 
 
 // startETLService starts the ETL service
+// ETL service instance - global to ensure single instance
+var etlService *etl.Service
+var etlServiceCancel context.CancelFunc
+var etlServiceMutex sync.Mutex
+
 func (sm *ServiceManager) startETLService(ctx context.Context) error {
-	// First check if already running
-	pid, err := sm.readPid(sm.config.ETLServicePIDFile)
-	if err == nil && pid > 0 && isPidRunning(pid) {
-		fmt.Println("ETL service is already running")
+	etlServiceMutex.Lock()
+	defer etlServiceMutex.Unlock()
+
+	// First check if our in-process service is already running
+	if etlService != nil && etlService.IsRunning() {
+		fmt.Println("ETL service is already running (in-process)")
 		return nil
 	}
 
-	// Path to the ETL directory and executable
-	cliDir := filepath.Join(sm.config.QuotronRoot, "cli")
-	etlDir := filepath.Join(cliDir, "cmd", "etl")
-	etlExec := filepath.Join(etlDir, "etl")
-	
-	// Check if ETL executable exists, build if needed
-	if _, err := os.Stat(etlExec); os.IsNotExist(err) || !isExecutable(etlExec) {
-		fmt.Println("ETL executable not found or not executable. Building ETL...")
-		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "etl", "main.go")
-		buildCmd.Dir = etlDir
-		buildOut, err := buildCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to build ETL: %w, output: %s", err, buildOut)
-		}
-		fmt.Println("ETL built successfully")
+	// For backward compatibility: check if another instance is running via PID file
+	pid, err := sm.readPid(sm.config.ETLServicePIDFile)
+	if err == nil && pid > 0 && isPidRunning(pid) {
+		fmt.Println("ETL service is already running (external process)")
+		return nil
 	}
-	
-	// Get the platform-appropriate temp directory for logs
-	logFile := sm.config.ETLServiceLogFile
-	
-	// Start the ETL service with appropriate parameters
-	fmt.Println("Starting ETL service...")
-	
-	// Create command with all required arguments
-	cmd := exec.CommandContext(ctx, etlExec,
-		"-start",
-		"-redis="+sm.config.RedisHost+":"+strconv.Itoa(sm.config.RedisPort),
-		"-dbhost="+sm.config.DBHost,
-		"-dbport="+strconv.Itoa(sm.config.DBPort),
-		"-dbname="+sm.config.DBName,
-		"-dbuser="+sm.config.DBUser,
-		"-dbpass="+sm.config.DBPassword,
-		"-workers=2",
+
+	// Configure database connection string
+	dbConnStr := fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		sm.config.DBHost, sm.config.DBPort, sm.config.DBUser, sm.config.DBPassword, sm.config.DBName,
 	)
+
+	// Configure Redis connection
+	redisAddr := fmt.Sprintf("%s:%d", sm.config.RedisHost, sm.config.RedisPort)
+
+	// Start the ETL service using the package directly
+	fmt.Println("Starting ETL service (in-process)...")
 	
-	// Set up log redirection - Replace existing log file instead of appending
-	logFd, err := os.OpenFile(logFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	// Import the etl package
+	etlPkg, err := sm.importETLPackage()
 	if err != nil {
-		return fmt.Errorf("failed to open ETL log file: %w", err)
+		return fmt.Errorf("failed to import ETL package: %w", err)
 	}
 	
-	cmd.Stdout = logFd
-	cmd.Stderr = logFd
-	cmd.Dir = etlDir
+	// Create a new ETL service instance
+	etlService = etlPkg.NewService(redisAddr, dbConnStr, 2) // Use 2 workers
 	
-	// Use nohup-like functionality to keep the process running
-	// Create a process group independent of this process
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-		Pgid:    0,
-	}
-	
-	// Start the ETL process
-	err = cmd.Start()
+	// Start the service
+	err = etlService.Start()
 	if err != nil {
-		logFd.Close()
 		return fmt.Errorf("failed to start ETL service: %w", err)
 	}
 	
-	// Close the log file in the parent process - the child will keep it open
-	logFd.Close()
-	
-	// Save PID to both the standard location and the legacy location
-	err = sm.savePid(sm.config.ETLServicePIDFile, cmd.Process.Pid)
+	// Save current PID to file since we're now running in the same process
+	err = sm.savePid(sm.config.ETLServicePIDFile, os.Getpid())
 	if err != nil {
-		return fmt.Errorf("failed to save ETL service PID: %w", err)
+		fmt.Printf("Warning: Failed to write PID file: %v\n", err)
 	}
 	
-	// Also save PID to the legacy location for compatibility
-	legacyPidPath := filepath.Join(cliDir, ".etl_service.pid")
-	if err := os.WriteFile(legacyPidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
-		fmt.Printf("Warning: Failed to write legacy PID file: %v\n", err)
-	}
+	// Create a goroutine to monitor the service for cancellation
+	etlCtx, cancel := context.WithCancel(context.Background())
+	etlServiceCancel = cancel
 	
-	// Add to global PID list
-	addPid(cmd.Process.Pid)
+	go func() {
+		<-etlCtx.Done()
+		etlServiceMutex.Lock()
+		defer etlServiceMutex.Unlock()
+		
+		if etlService != nil && etlService.IsRunning() {
+			fmt.Println("Stopping ETL service...")
+			etlService.Stop()
+		}
+	}()
 	
-	// Wait a moment to make sure it started properly
-	time.Sleep(2 * time.Second)
-	if isPidRunning(cmd.Process.Pid) {
-		fmt.Printf("ETL service started successfully with PID %d\n", cmd.Process.Pid)
-		fmt.Printf("Log file: %s\n", logFile)
-	} else {
-		return fmt.Errorf("ETL service failed to start. Check log at %s", logFile)
-	}
-	
+	fmt.Printf("ETL service started successfully\n")
 	return nil
 }
 
@@ -714,6 +723,13 @@ func (sm *ServiceManager) monitorServices(ctx context.Context, services ServiceL
 				}
 			}
 			
+			if services.ETLService && !status.ETLService {
+				fmt.Println("ETL Service is not running, restarting...")
+				err := sm.startETLService(ctx)
+				if err != nil {
+					fmt.Printf("Failed to restart ETL Service: %v\n", err)
+				}
+			}
 		}
 	}
 }
@@ -882,6 +898,13 @@ func (sm *ServiceManager) importAPIPackage() (*APIPackage, error) {
 	return &APIPackage{
 		apiServiceDir: filepath.Join(sm.config.QuotronRoot, "api-service"),
 	}, nil
+}
+
+// importETLPackage loads the ETL package
+// Unlike the other import functions, this actually imports the package directly
+func (sm *ServiceManager) importETLPackage() (*etl.ETLPackage, error) {
+	// Import the etl package directly
+	return &etl.ETLPackage{}, nil
 }
 
 // SchedulerPackage is a wrapper around the scheduler package
