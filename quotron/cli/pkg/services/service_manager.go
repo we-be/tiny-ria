@@ -608,7 +608,7 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 // ETL service instance - global to ensure single instance
 var etlService *etl.Service
 var etlServiceCancel context.CancelFunc
-var etlServiceMutex sync.Mutex
+var etlServiceMutex sync.RWMutex
 
 func (sm *ServiceManager) startETLService(ctx context.Context) error {
 	etlServiceMutex.Lock()
