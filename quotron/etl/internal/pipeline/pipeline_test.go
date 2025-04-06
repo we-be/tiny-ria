@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -25,9 +24,9 @@ func TestPipelineValidation(t *testing.T) {
 	defer database.Close()
 
 	// Create pipeline with default options
-	pipeline := NewPipeline(database, DefaultPipelineOptions())
+	p := NewPipeline(database, DefaultPipelineOptions())
 
-	// Test quotes validation
+	// Test quotes validation through the Pipeline's validator
 	t.Run("ValidateQuotes", func(t *testing.T) {
 		// Create test quotes
 		quotes := []models.StockQuote{
@@ -43,20 +42,16 @@ func TestPipelineValidation(t *testing.T) {
 			},
 		}
 
-		// Validate quotes
-		valid, invalidQuotes, err := pipeline.ValidateQuotes(quotes)
-		if err != nil {
-			t.Errorf("Error validating quotes: %v", err)
+		// Use the validator directly
+		validQuotes, _ := p.validator.ValidateBatch(quotes, nil)
+		
+		// Check validation results
+		if len(validQuotes) != 1 {
+			t.Errorf("Expected 1 valid quote, but got %d", len(validQuotes))
 		}
-		if !valid {
-			t.Errorf("Expected quotes to be valid, but got invalid")
-		}
-		if len(invalidQuotes) > 0 {
-			t.Errorf("Expected 0 invalid quotes, but got %d", len(invalidQuotes))
-		}
-
+		
 		// Test with invalid quote (missing symbol)
-		invalidQuotes = []models.StockQuote{
+		invalidQuotes := []models.StockQuote{
 			{
 				// Symbol is missing
 				Price:         150.25,
@@ -69,19 +64,15 @@ func TestPipelineValidation(t *testing.T) {
 			},
 		}
 
-		valid, invalidItems, err := pipeline.ValidateQuotes(invalidQuotes)
-		if err != nil {
-			t.Errorf("Error validating quotes: %v", err)
-		}
-		if valid {
-			t.Errorf("Expected quotes to be invalid, but got valid")
-		}
-		if len(invalidItems) != 1 {
-			t.Errorf("Expected 1 invalid quote, but got %d", len(invalidItems))
+		validQuotes, _ = p.validator.ValidateBatch(invalidQuotes, nil)
+		
+		// The validator removes invalid quotes
+		if len(validQuotes) != 0 {
+			t.Errorf("Expected 0 valid quotes for invalid input, but got %d", len(validQuotes))
 		}
 	})
 
-	// Test indices validation
+	// Test indices validation through the pipeline's validator
 	t.Run("ValidateIndices", func(t *testing.T) {
 		// Create test indices
 		indices := []models.MarketIndex{
@@ -95,20 +86,16 @@ func TestPipelineValidation(t *testing.T) {
 			},
 		}
 
-		// Validate indices
-		valid, invalidIndices, err := pipeline.ValidateIndices(indices)
-		if err != nil {
-			t.Errorf("Error validating indices: %v", err)
-		}
-		if !valid {
-			t.Errorf("Expected indices to be valid, but got invalid")
-		}
-		if len(invalidIndices) > 0 {
-			t.Errorf("Expected 0 invalid indices, but got %d", len(invalidIndices))
+		// Use the validator directly
+		_, validIndices := p.validator.ValidateBatch(nil, indices)
+		
+		// Check validation results
+		if len(validIndices) != 1 {
+			t.Errorf("Expected 1 valid index, but got %d", len(validIndices))
 		}
 
 		// Test with invalid index (missing name)
-		invalidIndices = []models.MarketIndex{
+		invalidIndices := []models.MarketIndex{
 			{
 				// Name is missing
 				Value:         4500.25,
@@ -119,15 +106,11 @@ func TestPipelineValidation(t *testing.T) {
 			},
 		}
 
-		valid, invalidItems, err := pipeline.ValidateIndices(invalidIndices)
-		if err != nil {
-			t.Errorf("Error validating indices: %v", err)
-		}
-		if valid {
-			t.Errorf("Expected indices to be invalid, but got valid")
-		}
-		if len(invalidItems) != 1 {
-			t.Errorf("Expected 1 invalid index, but got %d", len(invalidItems))
+		_, validIndices = p.validator.ValidateBatch(nil, invalidIndices)
+		
+		// The validator removes invalid indices
+		if len(validIndices) != 0 {
+			t.Errorf("Expected 0 valid indices for invalid input, but got %d", len(validIndices))
 		}
 	})
 }
