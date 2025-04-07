@@ -472,3 +472,11 @@ func mapSourceToEnum(source string) string {
 		return "api-scraper" // Default source
 	}
 }
+
+// ETLPackage provides compatibility with the service_manager.go implementation
+type ETLPackage struct {}
+
+// NewService creates a new ETL service (compatibility method for service_manager.go)
+func (p *ETLPackage) NewService(redisAddr, dbConnStr string, numWorkers int) *Service {
+	return NewService(redisAddr, dbConnStr, numWorkers)
+}
