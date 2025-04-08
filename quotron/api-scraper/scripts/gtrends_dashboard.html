@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Trends Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        h1 {
+            color: #1a73e8;
+            margin-top: 0;
+        }
+        .search-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input, select, button {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-size: 16px;
+        }
+        input {
+            flex-grow: 1;
+        }
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover {
+            background-color: #1765cc;
+        }
+        .chart-container {
+            position: relative;
+            height: 60vh;
+            width: 100%;
+            margin-top: 20px;
+        }
+        .metadata {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .error-message {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+            display: none;
+        }
+        .info-panel {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .info-box {
+            flex: 1;
+            background-color: #e8f0fe;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #1a73e8;
+        }
+        .related-list {
+            margin-top: 10px;
+        }
+        .related-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .related-term {
+            font-weight: 500;
+        }
+        .related-value {
+            color: #1a73e8;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            display: none;
+        }
+        .loading:after {
+            content: '';
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(26, 115, 232, 0.3);
+            border-radius: 50%;
+            border-top-color: #1a73e8;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .real-trending {
+            margin-top: 30px;
+        }
+        .trending-item {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+        }
+        .trending-rank {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a73e8;
+            min-width: 40px;
+        }
+        .trending-query {
+            flex-grow: 1;
+        }
+        .trending-searches {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Google Trends Explorer</h1>
+        
+        <div class="search-form">
+            <input type="text" id="keyword" placeholder="Enter search term (e.g., Bitcoin, Tesla, NFT)">
+            <select id="timeframe">
+                <option value="now 1-d">Last 24 hours</option>
+                <option value="now 7-d">Last 7 days</option>
+                <option value="today 1-m">Last 30 days</option>
+                <option value="today 3-m">Last 3 months</option>
+                <option value="today 12-m" selected>Last 12 months</option>
+                <option value="today 5-y">Last 5 years</option>
+            </select>
+            <button id="search-btn">Search</button>
+        </div>
+        
+        <div id="loading" class="loading"></div>
+        <div id="error-message" class="error-message"></div>
+        
+        <div id="results" style="display: none;">
+            <div class="chart-container">
+                <canvas id="trends-chart"></canvas>
+            </div>
+            
+            <div class="info-panel">
+                <div class="info-box">
+                    <h3>Related Queries</h3>
+                    <div id="related-queries" class="related-list"></div>
+                </div>
+                <div class="info-box">
+                    <h3>Related Topics</h3>
+                    <div id="related-topics" class="related-list"></div>
+                </div>
+            </div>
+            
+            <div class="metadata" id="metadata"></div>
+        </div>
+        
+        <div class="real-trending">
+            <h2>Trending Searches</h2>
+            <div id="trending-searches" class="trending-searches">
+                <div class="loading" id="trending-loading" style="display: block;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // DOM elements
+        const keywordInput = document.getElementById('keyword');
+        const timeframeSelect = document.getElementById('timeframe');
+        const searchBtn = document.getElementById('search-btn');
+        const loadingDiv = document.getElementById('loading');
+        const errorMsg = document.getElementById('error-message');
+        const resultsDiv = document.getElementById('results');
+        const trendsChart = document.getElementById('trends-chart');
+        const relatedQueriesDiv = document.getElementById('related-queries');
+        const relatedTopicsDiv = document.getElementById('related-topics');
+        const metadataDiv = document.getElementById('metadata');
+        const trendingSearchesDiv = document.getElementById('trending-searches');
+        const trendingLoadingDiv = document.getElementById('trending-loading');
+        
+        // Charts.js instance
+        let chart;
+        
+        // API base URL
+        const API_BASE_URL = 'http://localhost:5001';
+        
+        // Function to fetch data from the API
+        async function fetchData(endpoint, params = {}) {
+            const url = new URL(`${API_BASE_URL}${endpoint}`);
+            
+            // Add parameters to URL
+            Object.keys(params).forEach(key => {
+                url.searchParams.append(key, params[key]);
+            });
+            
+            try {
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                throw error;
+            }
+        }
+        
+        // Function to show the loading indicator
+        function showLoading() {
+            loadingDiv.style.display = 'block';
+            errorMsg.style.display = 'none';
+            resultsDiv.style.display = 'none';
+        }
+        
+        // Function to show an error message
+        function showError(message) {
+            loadingDiv.style.display = 'none';
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            resultsDiv.style.display = 'none';
+        }
+        
+        // Function to show the results
+        function showResults() {
+            loadingDiv.style.display = 'none';
+            errorMsg.style.display = 'none';
+            resultsDiv.style.display = 'block';
+        }
+        
+        // Function to render the interest over time chart
+        function renderChart(data) {
+            // Destroy existing chart if it exists
+            if (chart) {
+                chart.destroy();
+            }
+            
+            // Extract data
+            const labels = data.timeline;
+            const values = data.values;
+            
+            // Create the chart
+            const ctx = trendsChart.getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Interest Over Time',
+                        data: values,
+                        fill: true,
+                        borderColor: '#1a73e8',
+                        backgroundColor: 'rgba(26, 115, 232, 0.1)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                maxTicksLimit: 10,
+                                maxRotation: 0
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            },
+                            ticks: {
+                                precision: 0
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `Interest Over Time for "${keywordInput.value}"`,
+                            font: { 
+                                size: 16 
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        legend: {
+                            display: true, 
+                            position: 'top'
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+        
+        // Function to render related queries
+        function renderRelatedQueries(data) {
+            relatedQueriesDiv.innerHTML = '';
+            
+            // Check if data is available
+            if (!data || !data.top || data.top.length === 0) {
+                relatedQueriesDiv.innerHTML = '<p>No related queries available.</p>';
+                return;
+            }
+            
+            // Render top 5 related queries
+            data.top.slice(0, 5).forEach(query => {
+                const item = document.createElement('div');
+                item.className = 'related-item';
+                
+                const term = document.createElement('span');
+                term.className = 'related-term';
+                term.textContent = query.query;
+                
+                const value = document.createElement('span');
+                value.className = 'related-value';
+                value.textContent = query.value;
+                
+                item.appendChild(term);
+                item.appendChild(value);
+                relatedQueriesDiv.appendChild(item);
+            });
+        }
+        
+        // Function to render related topics
+        function renderRelatedTopics(data) {
+            relatedTopicsDiv.innerHTML = '';
+            
+            // Check if data is available
+            if (!data || !data.top || data.top.length === 0) {
+                relatedTopicsDiv.innerHTML = '<p>No related topics available.</p>';
+                return;
+            }
+            
+            // Render top 5 related topics
+            data.top.slice(0, 5).forEach(topic => {
+                const item = document.createElement('div');
+                item.className = 'related-item';
+                
+                const term = document.createElement('span');
+                term.className = 'related-term';
+                term.textContent = topic.topic;
+                
+                const value = document.createElement('span');
+                value.className = 'related-value';
+                value.textContent = topic.value;
+                
+                item.appendChild(term);
+                item.appendChild(value);
+                relatedTopicsDiv.appendChild(item);
+            });
+        }
+        
+        // Function to update metadata
+        function updateMetadata(keyword, timeframe, dataPoints) {
+            const timeframeText = timeframeSelect.options[timeframeSelect.selectedIndex].text;
+            
+            metadataDiv.innerHTML = `
+                <p><strong>Search term:</strong> ${keyword}</p>
+                <p><strong>Timeframe:</strong> ${timeframeText}</p>
+                <p><strong>Data points:</strong> ${dataPoints}</p>
+                <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+            `;
+        }
+        
+        // Function to load trending searches
+        async function loadTrendingSearches() {
+            trendingLoadingDiv.style.display = 'block';
+            trendingSearchesDiv.innerHTML = '';
+            
+            try {
+                const data = await fetchData('/trending');
+                
+                trendingLoadingDiv.style.display = 'none';
+                
+                if (!data || !data.trending_searches || data.trending_searches.length === 0) {
+                    trendingSearchesDiv.innerHTML = '<p>No trending searches available.</p>';
+                    return;
+                }
+                
+                // Only show top 10 trending searches
+                const searches = data.trending_searches.slice(0, 10);
+                
+                searches.forEach((search, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'trending-item';
+                    
+                    const rank = document.createElement('div');
+                    rank.className = 'trending-rank';
+                    rank.textContent = (index + 1);
+                    
+                    const query = document.createElement('div');
+                    query.className = 'trending-query';
+                    query.textContent = search.query;
+                    
+                    // Make it clickable to search
+                    item.style.cursor = 'pointer';
+                    item.addEventListener('click', () => {
+                        keywordInput.value = search.query;
+                        searchTrends();
+                    });
+                    
+                    item.appendChild(rank);
+                    item.appendChild(query);
+                    trendingSearchesDiv.appendChild(item);
+                });
+            } catch (error) {
+                trendingLoadingDiv.style.display = 'none';
+                trendingSearchesDiv.innerHTML = '<p>Failed to load trending searches.</p>';
+                console.error('Error loading trending searches:', error);
+            }
+        }
+        
+        // Function to search trends
+        async function searchTrends() {
+            const keyword = keywordInput.value.trim();
+            const timeframe = timeframeSelect.value;
+            
+            if (!keyword) {
+                showError('Please enter a search term.');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                // Fetch all data in parallel
+                const [interestData, queriesData, topicsData] = await Promise.all([
+                    fetchData('/interest', { keyword, timeframe }),
+                    fetchData('/related_queries', { keyword }),
+                    fetchData('/related_topics', { keyword })
+                ]);
+                
+                // Render the data
+                renderChart(interestData);
+                renderRelatedQueries(queriesData);
+                renderRelatedTopics(topicsData);
+                updateMetadata(keyword, timeframe, interestData.timeline.length);
+                
+                showResults();
+            } catch (error) {
+                showError(`Failed to fetch data: ${error.message}`);
+            }
+        }
+        
+        // Event listeners
+        searchBtn.addEventListener('click', searchTrends);
+        keywordInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                searchTrends();
+            }
+        });
+        
+        // Initial load of trending searches
+        loadTrendingSearches();
+        
+        // Prefill with a popular search term and search automatically if URL has search param
+        const urlParams = new URLSearchParams(window.location.search);
+        const searchTerm = urlParams.get('q');
+        
+        if (searchTerm) {
+            keywordInput.value = searchTerm;
+            searchTrends();
+        } else {
+            // Default search term
+            keywordInput.value = 'Bitcoin';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>US Economic Indicators Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --accent-color: #58a6ff;
+            --secondary-bg: #161b22;
+            --border-color: #30363d;
+            --success-color: #3fb950;
+            --warning-color: #d29922;
+            --error-color: #f85149;
+            --font-mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+        }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-mono);
+            line-height: 1.5;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        h1, h2, h3 {
+            margin-top: 0;
+            font-weight: 600;
+        }
+        
+        h1 {
+            color: var(--accent-color);
+        }
+        
+        .status-box {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .card-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 20px;
+            min-height: 100px;
+        }
+        
+        .card h3 {
+            margin-top: 0;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        button {
+            background-color: var(--accent-color);
+            color: black;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 15px;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+        
+        .value-up {
+            color: var(--success-color);
+        }
+        
+        .value-down {
+            color: var(--error-color);
+        }
+        
+        .value-stable {
+            color: var(--warning-color);
+        }
+        
+        .big-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .date {
+            font-size: 0.8em;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top: 3px solid var(--accent-color);
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loader {
+            text-align: center;
+            font-size: 0.9em;
+            margin: 10px 0;
+        }
+        
+        .overall-section {
+            margin-bottom: 20px;
+        }
+        
+        .overall-health {
+            font-size: 1.5em;
+            margin: 10px 0;
+        }
+        
+        .change-percent {
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        
+        .arrow-up::before {
+            content: "↑ ";
+        }
+        
+        .arrow-down::before {
+            content: "↓ ";
+        }
+        
+        .arrow-neutral::before {
+            content: "→ ";
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .date-controls {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        input[type="date"] {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: var(--text-color);
+            font-family: var(--font-mono);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>US Economic Indicators Dashboard</h1>
+            <p>Real-time economic health monitoring</p>
+        </header>
+        
+        <div class="status-box overall-section" id="overall-section">
+            <h2>Overall US Economic Health</h2>
+            <div id="overall-loading" class="loader">
+                <div class="spinner"></div>
+                <p>Loading economic health data...</p>
+            </div>
+            <div id="overall-content" class="hidden">
+                <div class="overall-health" id="health-indicator">Loading...</div>
+                <div id="health-details">
+                    <div>Indicators trending up: <span id="trending-up">-</span></div>
+                    <div>Indicators trending down: <span id="trending-down">-</span></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Date selection controls -->
+        <div class="date-controls">
+            <label for="date-selector">Select Date: </label>
+            <input type="date" id="date-selector" name="date-selector">
+            <button id="refresh-button">Refresh All Data</button>
+        </div>
+        
+        <h2>Key Economic Indicators</h2>
+        <div class="card-section" id="indicators-section">
+            <!-- Cards will be dynamically added here -->
+            <div class="card">
+                <h3>Inflation Rate (CPI)</h3>
+                <div id="cpi-loading" class="loader">
+                    <div class="spinner"></div>
+                    <p>Loading data...</p>
+                </div>
+                <div id="cpi-content" class="hidden">
+                    <div class="big-number" id="cpi-value">-</div>
+                    <div>
+                        <span class="change-percent" id="cpi-change">-</span>
+                    </div>
+                    <div class="date" id="cpi-date">As of: -</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Unemployment Rate</h3>
+                <div id="unemployment-loading" class="loader">
+                    <div class="spinner"></div>
+                    <p>Loading data...</p>
+                </div>
+                <div id="unemployment-content" class="hidden">
+                    <div class="big-number" id="unemployment-value">-</div>
+                    <div>
+                        <span class="change-percent" id="unemployment-change">-</span>
+                    </div>
+                    <div class="date" id="unemployment-date">As of: -</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>GDP Growth</h3>
+                <div id="gdp-loading" class="loader">
+                    <div class="spinner"></div>
+                    <p>Loading data...</p>
+                </div>
+                <div id="gdp-content" class="hidden">
+                    <div class="big-number" id="gdp-value">-</div>
+                    <div>
+                        <span class="change-percent" id="gdp-change">-</span>
+                    </div>
+                    <div class="date" id="gdp-date">As of: -</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Federal Funds Rate</h3>
+                <div id="fedfunds-loading" class="loader">
+                    <div class="spinner"></div>
+                    <p>Loading data...</p>
+                </div>
+                <div id="fedfunds-content" class="hidden">
+                    <div class="big-number" id="fedfunds-value">-</div>
+                    <div>
+                        <span class="change-percent" id="fedfunds-change">-</span>
+                    </div>
+                    <div class="date" id="fedfunds-date">As of: -</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Configuration
+        const API_BASE_URL = 'http://localhost:5002';
+        
+        // Utility function to format numbers
+        function formatNumber(num, decimals = 2) {
+            return num.toLocaleString(undefined, {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            });
+        }
+        
+        // Utility function to format dates
+        function formatDate(dateStr) {
+            if (!dateStr) return "N/A";
+            const date = new Date(dateStr);
+            // Format as "Month Year" (e.g., "November 2024")
+            return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+        }
+        
+        // Function to update UI for a specific indicator
+        function updateIndicatorUI(id, data) {
+            // Find latest data point
+            if (!data || !data.data || data.data.length === 0) {
+                // If no data, just hide loading spinner
+                document.getElementById(`${id}-loading`).classList.add('hidden');
+                document.getElementById(`${id}-content`).classList.remove('hidden');
+                return;
+            }
+            
+            const latestDataPoint = data.data[data.data.length - 1];
+            const firstDataPoint = data.data[0];
+            
+            // Calculate change percentage if we have enough data points
+            let changePercent = 0;
+            let changeClass = "arrow-neutral value-stable";
+            
+            if (latestDataPoint && firstDataPoint && firstDataPoint.value !== 0) {
+                changePercent = ((latestDataPoint.value - firstDataPoint.value) / firstDataPoint.value) * 100;
+                changeClass = changePercent > 0 ? "arrow-up value-up" : 
+                            changePercent < 0 ? "arrow-down value-down" : 
+                            "arrow-neutral value-stable";
+            }
+            
+            // Format the value appropriately (GDP in trillions, rates in %)
+            let formattedValue = formatNumber(latestDataPoint.value);
+            let unit = data.metadata?.unit || "";
+            
+            if (id === "gdp") {
+                // Format GDP as trillions
+                formattedValue = "$" + formatNumber(latestDataPoint.value / 1000) + " trillion";
+            } else if (id === "cpi") {
+                // For CPI, show change percentage as inflation rate
+                formattedValue = formatNumber(Math.abs(changePercent)) + "%";
+                unit = "YoY Change";
+            } else if (unit.includes("Percent") || id === "unemployment" || id === "fedfunds") {
+                formattedValue = formatNumber(latestDataPoint.value) + "%";
+                unit = "";
+            }
+            
+            // Update UI elements
+            document.getElementById(`${id}-value`).textContent = formattedValue;
+            document.getElementById(`${id}-change`).textContent = (changePercent >= 0 ? "+" : "") + formatNumber(changePercent) + "%";
+            document.getElementById(`${id}-change`).className = "change-percent " + changeClass;
+            document.getElementById(`${id}-date`).textContent = "As of: " + formatDate(latestDataPoint.date);
+            
+            // Show content, hide loading spinner
+            document.getElementById(`${id}-loading`).classList.add('hidden');
+            document.getElementById(`${id}-content`).classList.remove('hidden');
+        }
+        
+        // Function to update the overall economic health
+        function updateOverallHealth(data) {
+            if (!data || !data.overall) {
+                document.getElementById('overall-loading').classList.add('hidden');
+                document.getElementById('overall-content').classList.remove('hidden');
+                return;
+            }
+            
+            const overall = data.overall;
+            const health = overall.health;
+            
+            // Set health indicator text and color
+            const healthIndicator = document.getElementById('health-indicator');
+            healthIndicator.textContent = health;
+            
+            if (health === "Strong") {
+                healthIndicator.className = "overall-health value-up";
+            } else if (health === "Weak") {
+                healthIndicator.className = "overall-health value-down";
+            } else {
+                healthIndicator.className = "overall-health value-stable";
+            }
+            
+            // Update trending indicators
+            document.getElementById('trending-up').textContent = overall.trending_up;
+            document.getElementById('trending-down').textContent = overall.trending_down;
+            
+            // Show content, hide loading spinner
+            document.getElementById('overall-loading').classList.add('hidden');
+            document.getElementById('overall-content').classList.remove('hidden');
+        }
+        
+        // Function to load economic summary
+        function loadEconomicSummary(selectedDate) {
+            document.getElementById('overall-loading').classList.remove('hidden');
+            document.getElementById('overall-content').classList.add('hidden');
+            
+            // Build the URL with the date parameter if provided
+            let url = `${API_BASE_URL}/summary`;
+            if (selectedDate) {
+                url += `?target_date=${selectedDate}`;
+            }
+            
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to fetch economic summary');
+                    return response.json();
+                })
+                .then(data => {
+                    updateOverallHealth(data);
+                    
+                    // If the summary contains indicator data, update their cards too
+                    if (data.summary) {
+                        const summary = data.summary;
+                        
+                        // Map our indicator IDs to the API's indicator IDs
+                        const mappings = {
+                            'cpi': 'CPIAUCSL',
+                            'unemployment': 'UNRATE',
+                            'gdp': 'GDP',
+                            'fedfunds': 'FEDFUNDS'
+                        };
+                        
+                        // Update each indicator if data is available
+                        for (const [uiId, apiId] of Object.entries(mappings)) {
+                            if (summary[apiId]) {
+                                const indicatorData = {
+                                    data: [{
+                                        date: summary[apiId].date,
+                                        value: summary[apiId].value
+                                    }],
+                                    metadata: {
+                                        unit: summary[apiId].unit
+                                    }
+                                };
+                                
+                                // Only update change if available
+                                if (summary[apiId].change_pct) {
+                                    indicatorData.changePercent = summary[apiId].change_pct;
+                                }
+                                
+                                updateIndicatorUI(uiId, indicatorData);
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading economic summary:', error);
+                    document.getElementById('overall-loading').classList.add('hidden');
+                    document.getElementById('overall-content').classList.remove('hidden');
+                    document.getElementById('health-indicator').textContent = 'Error loading data';
+                    document.getElementById('health-indicator').className = 'overall-health value-down';
+                });
+        }
+        
+        // Function to load a specific economic indicator
+        function loadIndicator(indicator, uiId, selectedDate) {
+            document.getElementById(`${uiId}-loading`).classList.remove('hidden');
+            document.getElementById(`${uiId}-content`).classList.add('hidden');
+            
+            // Build the URL with the date parameter if provided
+            let url = `${API_BASE_URL}/indicator/${indicator}?period=1y`;
+            if (selectedDate) {
+                url += `&target_date=${selectedDate}`;
+            }
+            
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error(`Failed to fetch ${indicator}`);
+                    return response.json();
+                })
+                .then(data => {
+                    updateIndicatorUI(uiId, data);
+                })
+                .catch(error => {
+                    console.error(`Error loading ${indicator}:`, error);
+                    document.getElementById(`${uiId}-loading`).classList.add('hidden');
+                    document.getElementById(`${uiId}-content`).classList.remove('hidden');
+                    document.getElementById(`${uiId}-value`).textContent = 'Error';
+                    document.getElementById(`${uiId}-value`).className = 'big-number value-down';
+                    document.getElementById(`${uiId}-date`).textContent = 'Failed to load data';
+                });
+        }
+        
+        // Function to refresh all data
+        function refreshAllData() {
+            // Get the selected date
+            const dateSelector = document.getElementById('date-selector');
+            const selectedDate = dateSelector.value;
+            
+            // Load economic summary (which will also update overall health status)
+            loadEconomicSummary(selectedDate);
+            
+            // Load individual indicators for more detailed data
+            loadIndicator('CPIAUCSL', 'cpi', selectedDate);
+            loadIndicator('UNRATE', 'unemployment', selectedDate);
+            loadIndicator('GDP', 'gdp', selectedDate);
+            loadIndicator('FEDFUNDS', 'fedfunds', selectedDate);
+        }
+        
+        // Initialize the dashboard when the DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set default date to November 15, 2024
+            const dateSelector = document.getElementById('date-selector');
+            
+            // Set min and max date ranges (from 2020 to 2025)
+            dateSelector.min = "2020-01-01";
+            dateSelector.max = "2025-12-31";
+            
+            // Default to November 15, 2024
+            dateSelector.value = "2024-11-15";
+            
+            // Load initial data
+            refreshAllData();
+            
+            // Set up refresh button
+            document.getElementById('refresh-button').addEventListener('click', refreshAllData);
+            
+            // Set up date selector change event
+            dateSelector.addEventListener('change', refreshAllData);
+            
+            // Auto-refresh every 5 minutes
+            setInterval(refreshAllData, 5 * 60 * 1000);
+        });
+    </script>
+</body>
+</html>

@@ -4,3 +4,4 @@ requests
 flask-cors
 python-dateutil
 pytz
+pytrends

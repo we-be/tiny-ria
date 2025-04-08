@@ -19,6 +19,8 @@ import (
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
 	"github.com/rs/cors"
+	"github.com/tiny-ria/quotron/api-service/api/economics"
+	"github.com/tiny-ria/quotron/api-service/api/trends"
 	"github.com/tiny-ria/quotron/api-service/pkg/client"
 )
 
@@ -119,7 +121,50 @@ func NewAPI(config Config) (*API, error) {
 	// Set up routes
 	api.setupRoutes()
 
+	// Set up Google Trends handler
+	_, trendErr := setupTrendsHandler(api.router)
+	if trendErr != nil {
+		log.Printf("Warning: Failed to initialize Google Trends handler: %v", trendErr)
+		// Continue without Trends handler
+	} else {
+		log.Printf("Google Trends handler initialized successfully")
+	}
+
+	// Set up Economic Factors handler
+	_, econErr := setupEconomicsHandler(api.router)
+	if econErr != nil {
+		log.Printf("Warning: Failed to initialize Economic Factors handler: %v", econErr)
+		// Continue without Economics handler
+	} else {
+		log.Printf("Economic Factors handler initialized successfully")
+	}
+
 	return api, nil
+}
+
+// setupTrendsHandler initializes and registers the Google Trends handler
+func setupTrendsHandler(router *mux.Router) (*trends.Handler, error) {
+	handler, err := trends.NewHandler()
+	if err != nil {
+		return nil, err
+	}
+
+	// Register routes
+	handler.RegisterRoutes(router)
+	return handler, nil
+}
+
+// setupEconomicsHandler initializes and registers the Economic Factors handler
+func setupEconomicsHandler(router *mux.Router) (*economics.Handler, error) {
+	// Create the economic factors client
+	economicClient := client.NewEconomicFactorsClient()
+	
+	// Create handler with the client
+	handler := economics.NewHandler(economicClient)
+
+	// Register routes
+	handler.RegisterRoutes(router)
+	return handler, nil
 }
 
 // setupRoutes configures the API routes
@@ -144,6 +189,9 @@ func (a *API) setupRoutes() {
 	
 	// Root handler for Dashboard UI
 	a.router.HandleFunc("/", a.rootHandler).Methods("GET")
+	
+	// Economic dashboard redirect
+	a.router.HandleFunc("/economic-dashboard", a.economicDashboardHandler).Methods("GET")
 }
 
 // healthHandler returns API health status
@@ -279,6 +327,11 @@ func (a *API) getDataSourceHealthHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondWithJSON(w, http.StatusOK, reports)
+}
+
+// economicDashboardHandler redirects to the economic factors dashboard
+func (a *API) economicDashboardHandler(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "http://localhost:5002/dashboard", http.StatusFound)
 }
 
 // rootHandler serves the dashboard UI directly
