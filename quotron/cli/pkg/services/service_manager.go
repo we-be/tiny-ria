@@ -12,8 +12,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/we-be/tiny-ria/quotron/cli/pkg/etl"
 )
 
 // ServiceList defines which services should be operated on
@@ -35,12 +39,29 @@ type ServiceStatus struct {
 // ServiceManager manages operations on services
 type ServiceManager struct {
 	config *Config
+	redis  *redis.Client
 }
 
 // NewServiceManager creates a new ServiceManager
 func NewServiceManager(config *Config) *ServiceManager {
+	// Connect to Redis if available
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", config.RedisHost, config.RedisPort),
+		Password: config.RedisPassword,
+		DB:       0,
+	})
+	
+	// Test connection - silently continue if Redis is not available
+	_, err := redisClient.Ping(context.Background()).Result()
+	if err != nil {
+		fmt.Printf("Warning: Redis not available at %s:%d: %v\n", 
+			config.RedisHost, config.RedisPort, err)
+		redisClient = nil
+	}
+	
 	return &ServiceManager{
 		config: config,
+		redis:  redisClient,
 	}
 }
 
@@ -117,9 +138,53 @@ func (sm *ServiceManager) StopServices(services ServiceList) error {
 	}
 
 	if services.ETLService {
-		err := sm.stopService("ETL Service", sm.config.ETLServicePIDFile, "etl.*-start")
-		if err != nil {
-			return fmt.Errorf("failed to stop ETL Service: %w", err)
+		// First try to stop the in-process ETL service
+		etlServiceMutex.Lock()
+		if etlService != nil && etlService.IsRunning() {
+			fmt.Println("Stopping in-process ETL service...")
+			etlService.Stop()
+			etlService = nil
+			if etlServiceCancel != nil {
+				etlServiceCancel()
+				etlServiceCancel = nil
+			}
+			
+			// Update Redis status
+			if sm.redis != nil {
+				ctx := context.Background()
+				err := sm.redis.HSet(ctx, "quotron:services:etl", map[string]interface{}{
+					"status":    "stopped",
+					"timestamp": time.Now().Unix(),
+				}).Err()
+				
+				if err != nil {
+					fmt.Printf("Warning: Failed to update ETL service status in Redis: %v\n", err)
+				}
+			}
+			
+			// Remove PID file
+			if err := os.Remove(sm.config.ETLServicePIDFile); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("Warning: Failed to remove ETL PID file: %v\n", err)
+			}
+			
+			fmt.Println("ETL service stopped successfully")
+			etlServiceMutex.Unlock()
+		} else {
+			etlServiceMutex.Unlock()
+			// Fall back to traditional process kill for backward compatibility
+			// Update Redis status even for external process
+			if sm.redis != nil {
+				ctx := context.Background()
+				sm.redis.HSet(ctx, "quotron:services:etl", map[string]interface{}{
+					"status":    "stopped",
+					"timestamp": time.Now().Unix(),
+				})
+			}
+			
+			err := sm.stopService("ETL Service", sm.config.ETLServicePIDFile, "etl.*-start")
+			if err != nil {
+				return fmt.Errorf("failed to stop ETL Service: %w", err)
+			}
 		}
 	}
 
@@ -195,15 +260,58 @@ func (sm *ServiceManager) GetServiceStatus() (*ServiceStatus, error) {
 
 		
 	// Check ETL Service
-	// First check PID file
-	etlPid, err := sm.readPid(sm.config.ETLServicePIDFile)
-	if err == nil && etlPid > 0 && isPidRunning(etlPid) {
+	etlServiceMutex.RLock()
+	if etlService != nil && etlService.IsRunning() {
 		status.ETLService = true
+		etlServiceMutex.RUnlock()
 	} else {
-		// Then check for any ETL processes running
-		cmd := exec.Command("pgrep", "-f", "etl.*-start")
-		if cmd.Run() == nil {
-			status.ETLService = true
+		etlServiceMutex.RUnlock()
+		
+		// Check Redis first if available
+		if sm.redis != nil {
+			ctx := context.Background()
+			serviceInfo, err := sm.redis.HGetAll(ctx, "quotron:services:etl").Result()
+			if err == nil && len(serviceInfo) > 0 {
+				// Only show debug info when verbose flag is set
+				// fmt.Printf("Debug: Redis service status: %v\n", serviceInfo)
+				
+				// Check if the service is reporting as running
+				if serviceInfo["status"] == "running" {
+					// With heartbeat mechanism we only need to check timestamp
+					tsStr, tsOk := serviceInfo["timestamp"]
+					if !tsOk {
+						// No timestamp, assume it's not running
+						// fmt.Println("Debug: No timestamp, assuming service is NOT running")
+					} else {
+						ts, err := strconv.ParseInt(tsStr, 10, 64)
+						if err == nil {
+							lastSeen := time.Unix(ts, 0)
+							timeSince := time.Since(lastSeen)
+							// fmt.Printf("Debug: Last heartbeat was %s ago\n", timeSince)
+							if timeSince < 30*time.Second {
+								// fmt.Println("Debug: Heartbeat is recent, service is running")
+								status.ETLService = true
+							} else {
+								// fmt.Println("Debug: Heartbeat is stale, service may have crashed")
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		// Fall back to PID file if service not found in Redis or Redis unavailable
+		if !status.ETLService {
+			etlPid, err := sm.readPid(sm.config.ETLServicePIDFile)
+			if err == nil && etlPid > 0 && isPidRunning(etlPid) {
+				status.ETLService = true
+			} else {
+				// Then check for any ETL processes running
+				cmd := exec.Command("pgrep", "-f", "etl.*-start")
+				if cmd.Run() == nil {
+					status.ETLService = true
+				}
+			}
 		}
 	}
 
@@ -507,100 +615,139 @@ func (sm *ServiceManager) startScheduler(ctx context.Context) error {
 
 
 // startETLService starts the ETL service
+// ETL service instance - global to ensure single instance
+var etlService *etl.Service
+var etlServiceCancel context.CancelFunc
+var etlServiceMutex sync.RWMutex
+
 func (sm *ServiceManager) startETLService(ctx context.Context) error {
-	// First check if already running
-	pid, err := sm.readPid(sm.config.ETLServicePIDFile)
-	if err == nil && pid > 0 && isPidRunning(pid) {
-		fmt.Println("ETL service is already running")
+	etlServiceMutex.Lock()
+	defer etlServiceMutex.Unlock()
+
+	// First check if our in-process service is already running
+	if etlService != nil && etlService.IsRunning() {
+		fmt.Println("ETL service is already running (in-process)")
 		return nil
 	}
 
-	// Path to the ETL directory and executable
-	cliDir := filepath.Join(sm.config.QuotronRoot, "cli")
-	etlDir := filepath.Join(cliDir, "cmd", "etl")
-	etlExec := filepath.Join(etlDir, "etl")
-	
-	// Check if ETL executable exists, build if needed
-	if _, err := os.Stat(etlExec); os.IsNotExist(err) || !isExecutable(etlExec) {
-		fmt.Println("ETL executable not found or not executable. Building ETL...")
-		buildCmd := exec.CommandContext(ctx, "go", "build", "-o", "etl", "main.go")
-		buildCmd.Dir = etlDir
-		buildOut, err := buildCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to build ETL: %w, output: %s", err, buildOut)
-		}
-		fmt.Println("ETL built successfully")
+	// For backward compatibility: check if another instance is running via PID file
+	pid, err := sm.readPid(sm.config.ETLServicePIDFile)
+	if err == nil && pid > 0 && isPidRunning(pid) {
+		fmt.Println("ETL service is already running (external process)")
+		return nil
 	}
-	
-	// Get the platform-appropriate temp directory for logs
-	logFile := sm.config.ETLServiceLogFile
-	
-	// Start the ETL service with appropriate parameters
-	fmt.Println("Starting ETL service...")
-	
-	// Create command with all required arguments
-	cmd := exec.CommandContext(ctx, etlExec,
-		"-start",
-		"-redis="+sm.config.RedisHost+":"+strconv.Itoa(sm.config.RedisPort),
-		"-dbhost="+sm.config.DBHost,
-		"-dbport="+strconv.Itoa(sm.config.DBPort),
-		"-dbname="+sm.config.DBName,
-		"-dbuser="+sm.config.DBUser,
-		"-dbpass="+sm.config.DBPassword,
-		"-workers=2",
+
+	// Configure database connection string
+	dbConnStr := fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		sm.config.DBHost, sm.config.DBPort, sm.config.DBUser, sm.config.DBPassword, sm.config.DBName,
 	)
+
+	// Configure Redis connection
+	redisAddr := fmt.Sprintf("%s:%d", sm.config.RedisHost, sm.config.RedisPort)
+
+	// Start the ETL service using the package directly
+	fmt.Println("Starting ETL service (in-process)...")
 	
-	// Set up log redirection - Replace existing log file instead of appending
-	logFd, err := os.OpenFile(logFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	// Import the etl package
+	etlPkg, err := sm.importETLPackage()
 	if err != nil {
-		return fmt.Errorf("failed to open ETL log file: %w", err)
+		return fmt.Errorf("failed to import ETL package: %w", err)
 	}
 	
-	cmd.Stdout = logFd
-	cmd.Stderr = logFd
-	cmd.Dir = etlDir
+	// Create a new ETL service instance
+	etlService = etlPkg.NewService(redisAddr, dbConnStr, 2) // Use 2 workers
 	
-	// Use nohup-like functionality to keep the process running
-	// Create a process group independent of this process
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-		Pgid:    0,
-	}
-	
-	// Start the ETL process
-	err = cmd.Start()
+	// Start the service
+	err = etlService.Start()
 	if err != nil {
-		logFd.Close()
 		return fmt.Errorf("failed to start ETL service: %w", err)
 	}
 	
-	// Close the log file in the parent process - the child will keep it open
-	logFd.Close()
-	
-	// Save PID to both the standard location and the legacy location
-	err = sm.savePid(sm.config.ETLServicePIDFile, cmd.Process.Pid)
-	if err != nil {
-		return fmt.Errorf("failed to save ETL service PID: %w", err)
-	}
-	
-	// Also save PID to the legacy location for compatibility
-	legacyPidPath := filepath.Join(cliDir, ".etl_service.pid")
-	if err := os.WriteFile(legacyPidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
-		fmt.Printf("Warning: Failed to write legacy PID file: %v\n", err)
-	}
-	
-	// Add to global PID list
-	addPid(cmd.Process.Pid)
-	
-	// Wait a moment to make sure it started properly
-	time.Sleep(2 * time.Second)
-	if isPidRunning(cmd.Process.Pid) {
-		fmt.Printf("ETL service started successfully with PID %d\n", cmd.Process.Pid)
-		fmt.Printf("Log file: %s\n", logFile)
+	// Save service status to Redis
+	if sm.redis != nil {
+		ctx := context.Background()
+		// Store service info in Redis hash
+		err = sm.redis.HSet(ctx, "quotron:services:etl", map[string]interface{}{
+			"pid":       os.Getpid(),
+			"status":    "running",
+			"host":      getHostname(),
+			"timestamp": time.Now().Unix(),
+		}).Err()
+		
+		if err != nil {
+			fmt.Printf("Warning: Failed to store ETL service status in Redis: %v\n", err)
+		} else {
+			fmt.Println("Service status stored in Redis")
+		}
 	} else {
-		return fmt.Errorf("ETL service failed to start. Check log at %s", logFile)
+		// Fall back to PID file if Redis isn't available
+		err = sm.savePid(sm.config.ETLServicePIDFile, os.Getpid())
+		if err != nil {
+			fmt.Printf("Warning: Failed to write PID file: %v\n", err)
+		}
 	}
 	
+	// Create a goroutine to monitor the service for cancellation
+	etlCtx, cancel := context.WithCancel(context.Background())
+	etlServiceCancel = cancel
+	
+	// Create a background goroutine for heartbeat updates
+	if sm.redis != nil {
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			
+			for {
+				select {
+				case <-etlCtx.Done():
+					return
+				case <-ticker.C:
+					// Update heartbeat timestamp while service is running
+					if etlService != nil && etlService.IsRunning() {
+						ctx := context.Background()
+						err := sm.redis.HSet(ctx, "quotron:services:etl", map[string]interface{}{
+							"timestamp": time.Now().Unix(),
+						}).Err()
+						
+						if err != nil {
+							fmt.Printf("Warning: Failed to update ETL service heartbeat: %v\n", err)
+						} else {
+							// Debug output disabled for heartbeat to reduce noise
+							// fmt.Println("Updated ETL service heartbeat in Redis")
+						}
+					}
+				}
+			}
+		}()
+	}
+	
+	// Graceful shutdown goroutine
+	go func() {
+		<-etlCtx.Done()
+		etlServiceMutex.Lock()
+		defer etlServiceMutex.Unlock()
+		
+		if etlService != nil && etlService.IsRunning() {
+			fmt.Println("Stopping ETL service...")
+			etlService.Stop()
+			
+			// Update Redis status on graceful shutdown
+			if sm.redis != nil {
+				ctx := context.Background()
+				err := sm.redis.HSet(ctx, "quotron:services:etl", map[string]interface{}{
+					"status":    "stopped",
+					"timestamp": time.Now().Unix(),
+				}).Err()
+				
+				if err != nil {
+					fmt.Printf("Warning: Failed to update ETL service status in Redis: %v\n", err)
+				}
+			}
+		}
+	}()
+	
+	fmt.Printf("ETL service started successfully\n")
 	return nil
 }
 
@@ -714,6 +861,13 @@ func (sm *ServiceManager) monitorServices(ctx context.Context, services ServiceL
 				}
 			}
 			
+			if services.ETLService && !status.ETLService {
+				fmt.Println("ETL Service is not running, restarting...")
+				err := sm.startETLService(ctx)
+				if err != nil {
+					fmt.Printf("Failed to restart ETL Service: %v\n", err)
+				}
+			}
 		}
 	}
 }
@@ -724,6 +878,15 @@ var pidList []int
 // addPid adds a PID to the global PID list
 func addPid(pid int) {
 	pidList = append(pidList, pid)
+}
+
+// getHostname returns the hostname of the current machine
+func getHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return hostname
 }
 
 // clearPids clears the global PID list
@@ -882,6 +1045,13 @@ func (sm *ServiceManager) importAPIPackage() (*APIPackage, error) {
 	return &APIPackage{
 		apiServiceDir: filepath.Join(sm.config.QuotronRoot, "api-service"),
 	}, nil
+}
+
+// importETLPackage loads the ETL package
+// Unlike the other import functions, this actually imports the package directly
+func (sm *ServiceManager) importETLPackage() (*etl.ETLPackage, error) {
+	// Import the etl package directly
+	return &etl.ETLPackage{}, nil
 }
 
 // SchedulerPackage is a wrapper around the scheduler package
