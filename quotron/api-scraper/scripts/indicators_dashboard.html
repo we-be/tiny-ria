@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Economic Indicators Dashboard</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+            --bg-color: #f5f7fa;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+            --border-color: #e1e4e8;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1, h2, h3 {
+            color: var(--primary-color);
+        }
+        
+        header {
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            padding: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: var(--secondary-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+        
+        .indicator-details p {
+            margin: 5px 0;
+        }
+        
+        .indicator-details .label {
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        
+        .chart-container {
+            height: 200px;
+            margin-top: 20px;
+            position: relative;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        button, select {
+            background-color: var(--secondary-color);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        select {
+            background-color: white;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--secondary-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .trend-up {
+            color: var(--success-color);
+        }
+        
+        .trend-down {
+            color: var(--danger-color);
+        }
+        
+        .trend-stable {
+            color: var(--warning-color);
+        }
+        
+        .data-source {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+            font-style: italic;
+        }
+        
+        .summary-card {
+            grid-column: 1 / -1;
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .summary-card h3 {
+            color: white;
+            border-bottom-color: rgba(255, 255, 255, 0.2);
+        }
+        
+        .summary-stats {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        
+        .summary-stat {
+            flex: 1;
+            min-width: 200px;
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 6px;
+        }
+        
+        .summary-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: transparent;
+            border: none;
+            color: var(--text-color);
+            border-bottom: 3px solid transparent;
+        }
+        
+        .tab.active {
+            border-bottom-color: var(--secondary-color);
+            color: var(--secondary-color);
+            font-weight: bold;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .visualize-btn {
+            margin-top: 15px;
+            background-color: var(--primary-color);
+        }
+        
+        .visualize-btn:hover {
+            background-color: #1a2530;
+        }
+        
+        .not-found {
+            text-align: center;
+            padding: 50px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Economic Indicators Dashboard</h1>
+            <p>View and analyze key economic indicators from FRED database</p>
+        </header>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab="summary">Economic Summary</button>
+            <button class="tab" data-tab="indicators">All Indicators</button>
+        </div>
+        
+        <div class="tab-content active" id="summary-tab">
+            <div class="controls">
+                <button id="refresh-summary">Refresh Summary</button>
+                <select id="period-select">
+                    <option value="1y">1 Year</option>
+                    <option value="5y" selected>5 Years</option>
+                    <option value="max">Maximum</option>
+                </select>
+            </div>
+            <div id="loader-summary" class="loader"></div>
+            <div id="summary-container"></div>
+        </div>
+        
+        <div class="tab-content" id="indicators-tab">
+            <div class="controls">
+                <button id="load-indicators">Load All Indicators</button>
+                <input type="text" id="search-input" placeholder="Search indicators..." style="padding: 8px; border-radius: 4px; border: 1px solid var(--border-color); flex-grow: 1; max-width: 300px;">
+            </div>
+            <div id="loader-indicators" class="loader"></div>
+            <div id="indicators-container" class="dashboard"></div>
+        </div>
+    </div>
+
+    <script>
+        // Base URL for the economic proxy
+        const API_BASE_URL = 'http://localhost:5002';
+        
+        // DOM elements
+        const tabButtons = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        const loadIndicatorsBtn = document.getElementById('load-indicators');
+        const refreshSummaryBtn = document.getElementById('refresh-summary');
+        const periodSelect = document.getElementById('period-select');
+        const searchInput = document.getElementById('search-input');
+        const indicatorsContainer = document.getElementById('indicators-container');
+        const summaryContainer = document.getElementById('summary-container');
+        const loaderIndicators = document.getElementById('loader-indicators');
+        const loaderSummary = document.getElementById('loader-summary');
+        
+        // Store loaded indicators
+        let allIndicators = [];
+        
+        // Handle tab switching
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                // Remove active class from all tabs
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+                
+                // Add active class to clicked tab
+                button.classList.add('active');
+                const tabId = button.getAttribute('data-tab');
+                document.getElementById(`${tabId}-tab`).classList.add('active');
+                
+                // Load content if needed
+                if (tabId === 'indicators' && indicatorsContainer.innerHTML === '') {
+                    loadIndicators();
+                } else if (tabId === 'summary' && summaryContainer.innerHTML === '') {
+                    loadSummary();
+                }
+            });
+        });
+        
+        // Load all indicators
+        function loadIndicators() {
+            loaderIndicators.style.display = 'block';
+            indicatorsContainer.innerHTML = '';
+            
+            fetch(`${API_BASE_URL}/indicators`)
+                .then(response => response.json())
+                .then(data => {
+                    allIndicators = data.indicators;
+                    displayIndicators(allIndicators);
+                })
+                .catch(error => {
+                    console.error('Error loading indicators:', error);
+                    indicatorsContainer.innerHTML = `
+                        <div class="not-found">
+                            <h3>Error loading indicators</h3>
+                            <p>${error.message}</p>
+                            <p>Make sure the economic proxy service is running at ${API_BASE_URL}</p>
+                        </div>
+                    `;
+                })
+                .finally(() => {
+                    loaderIndicators.style.display = 'none';
+                });
+        }
+        
+        // Display indicators in cards
+        function displayIndicators(indicators) {
+            if (indicators.length === 0) {
+                indicatorsContainer.innerHTML = `
+                    <div class="not-found">
+                        <h3>No indicators found</h3>
+                        <p>Try adjusting your search criteria</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            indicatorsContainer.innerHTML = '';
+            
+            indicators.forEach(indicator => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <h3>${indicator.name}</h3>
+                    <div class="indicator-details">
+                        <p><span class="label">ID:</span> ${indicator.id}</p>
+                        <p><span class="label">Description:</span> ${indicator.description}</p>
+                        <p><span class="label">Frequency:</span> ${indicator.frequency}</p>
+                        <p><span class="label">Unit:</span> ${indicator.unit}</p>
+                    </div>
+                    <button class="visualize-btn" data-id="${indicator.id}">View Data</button>
+                `;
+                indicatorsContainer.appendChild(card);
+                
+                // Add event listener to visualize button
+                card.querySelector('.visualize-btn').addEventListener('click', () => {
+                    loadIndicatorData(indicator.id);
+                });
+            });
+        }
+        
+        // Load data for a specific indicator
+        function loadIndicatorData(indicatorId) {
+            const period = periodSelect.value;
+            window.open(`${API_BASE_URL}/indicator/${indicatorId}?period=${period}`, '_blank');
+        }
+        
+        // Load economic summary
+        function loadSummary() {
+            loaderSummary.style.display = 'block';
+            summaryContainer.innerHTML = '';
+            
+            fetch(`${API_BASE_URL}/summary`)
+                .then(response => response.json())
+                .then(data => {
+                    displaySummary(data);
+                })
+                .catch(error => {
+                    console.error('Error loading summary:', error);
+                    summaryContainer.innerHTML = `
+                        <div class="not-found">
+                            <h3>Error loading economic summary</h3>
+                            <p>${error.message}</p>
+                            <p>Make sure the economic proxy service is running at ${API_BASE_URL}</p>
+                        </div>
+                    `;
+                })
+                .finally(() => {
+                    loaderSummary.style.display = 'none';
+                });
+        }
+        
+        // Display economic summary
+        function displaySummary(data) {
+            const overall = data.overall;
+            const summaryData = data.summary;
+            
+            // Create overall summary card
+            let summaryHTML = `
+                <div class="card summary-card">
+                    <h3>Overall Economic Health</h3>
+                    <p>Current Status: <strong>${overall.health}</strong></p>
+                    <div class="summary-stats">
+                        <div class="summary-stat">
+                            <div>Trending Up</div>
+                            <div class="summary-value trend-up">${overall.trending_up}</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div>Trending Down</div>
+                            <div class="summary-value trend-down">${overall.trending_down}</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div>Health Score</div>
+                            <div class="summary-value">${overall.score}</div>
+                        </div>
+                    </div>
+                    <p class="data-source">Source: ${data.source}</p>
+                </div>
+                <div class="dashboard">
+            `;
+            
+            // Create cards for each indicator in the summary
+            Object.keys(summaryData).forEach(key => {
+                const indicator = summaryData[key];
+                const trendClass = 
+                    indicator.trend === 'up' ? 'trend-up' : 
+                    indicator.trend === 'down' ? 'trend-down' : 'trend-stable';
+                
+                summaryHTML += `
+                    <div class="card">
+                        <h3>${indicator.name}</h3>
+                        <div class="indicator-details">
+                            <p><span class="label">Current Value:</span> ${formatNumber(indicator.value)} ${indicator.unit}</p>
+                            <p><span class="label">Date:</span> ${formatDate(indicator.date)}</p>
+                            <p><span class="label">Change:</span> <span class="${trendClass}">${indicator.change_pct > 0 ? '+' : ''}${indicator.change_pct}%</span></p>
+                            <p><span class="label">Trend:</span> <span class="${trendClass}">${capitalizeFirstLetter(indicator.trend)}</span></p>
+                        </div>
+                        <button class="visualize-btn" data-id="${key}">View Full Data</button>
+                    </div>
+                `;
+            });
+            
+            summaryHTML += '</div>';
+            summaryContainer.innerHTML = summaryHTML;
+            
+            // Add event listeners to visualize buttons
+            document.querySelectorAll('.visualize-btn').forEach(button => {
+                button.addEventListener('click', () => {
+                    const indicatorId = button.getAttribute('data-id');
+                    loadIndicatorData(indicatorId);
+                });
+            });
+        }
+        
+        // Format number with commas and appropriate decimal places
+        function formatNumber(value) {
+            if (typeof value !== 'number') return value;
+            
+            // Format integers without decimal places
+            if (Number.isInteger(value)) {
+                return value.toLocaleString();
+            }
+            
+            // Format floats with up to 2 decimal places
+            return value.toLocaleString(undefined, {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 2
+            });
+        }
+        
+        // Format date to readable format
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString();
+        }
+        
+        // Capitalize first letter of a string
+        function capitalizeFirstLetter(string) {
+            return string.charAt(0).toUpperCase() + string.slice(1);
+        }
+        
+        // Search functionality
+        searchInput.addEventListener('input', () => {
+            const searchTerm = searchInput.value.toLowerCase();
+            const filteredIndicators = allIndicators.filter(indicator => {
+                return (
+                    indicator.id.toLowerCase().includes(searchTerm) ||
+                    indicator.name.toLowerCase().includes(searchTerm) ||
+                    indicator.description.toLowerCase().includes(searchTerm)
+                );
+            });
+            displayIndicators(filteredIndicators);
+        });
+        
+        // Event listeners for buttons
+        loadIndicatorsBtn.addEventListener('click', loadIndicators);
+        refreshSummaryBtn.addEventListener('click', loadSummary);
+        
+        // Initial load based on active tab
+        if (document.getElementById('summary-tab').classList.contains('active')) {
+            loadSummary();
+        }
+    </script>
+</body>
+</html>
