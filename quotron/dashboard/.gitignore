@@ -1,6 +1,0 @@
-# This directory uses the top-level .gitignore file
-# See /.gitignore for all ignore patterns
-
-# Additional patterns specific to this directory:
-.streamlit/
-scheduler_heartbeat
