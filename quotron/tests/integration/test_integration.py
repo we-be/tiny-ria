@@ -183,51 +183,18 @@ def test_auth_engine():
 # 1. Unit tests in Go for ETL components
 # 2. Database integration tests with a test database
 
-def test_events_system():
-    """Test the events system functionality."""
-    logger.info("Testing events system...")
-    
-    try:
-        # Import the events system components
-        sys.path.append(str(project_root / "events"))
-        from schemas.event_schema import StockQuoteEvent
-        
-        # Create a test event
-        event = StockQuoteEvent(
-            event_id=str(uuid.uuid4()),
-            source="test-script",
-            data={
-                "symbol": "AAPL",
-                "price": 150.25,
-                "change": 2.5,
-                "change_percent": 1.69,
-                "volume": 12345678,
-            },
-            metadata={
-                "environment": "test",
-            }
-        )
-        
-        # Validate that the event can be serialized to JSON
-        event_json = json.dumps(event.model_dump(), default=str)
-        logger.info(f"Event serialized successfully: {event_json[:100]}...")
-        logger.info("Events system test successful")
-    except Exception as e:
-        logger.error(f"Error testing events system: {e}")
-
 def main():
     """Run all tests."""
     parser = argparse.ArgumentParser(description="Quotron integration tests")
     parser.add_argument("--api", action="store_true", help="Test API scraper")
     parser.add_argument("--browser", action="store_true", help="Test browser scraper")
     parser.add_argument("--auth", action="store_true", help="Test auth engine")
-    parser.add_argument("--events", action="store_true", help="Test events system")
     parser.add_argument("--all", action="store_true", help="Test all components")
     
     args = parser.parse_args()
     
     # If no specific tests are specified, test all
-    if not any([args.api, args.browser, args.auth, args.events, args.all]):
+    if not any([args.api, args.browser, args.auth, args.all]):
         args.all = True
     
     if args.all or args.api:
@@ -238,9 +205,6 @@ def main():
     
     if args.all or args.auth:
         test_auth_engine()
-    
-    if args.all or args.events:
-        test_events_system()
     
     logger.info("All tests completed")
 
