@@ -2,7 +2,7 @@
 
 A modular financial data platform with AI assistant capabilities for analysis and alerts.
 
-[![CLI:838ee76](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%3A838ee76&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
+[![CLI:64c9b80](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/cli-release.yml?label=CLI%3A64c9b80&logo=go)](https://github.com/we-be/tiny-ria/actions/workflows/cli-release.yml)
 [![YFinance](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/yahoo-finance-tests.yml?label=YFinance&logo=yahoo)](https://github.com/we-be/tiny-ria/actions/workflows/yahoo-finance-tests.yml)
 [![API Scraper](https://img.shields.io/github/actions/workflow/status/we-be/tiny-ria/api-scraper-tests.yml?label=API%20Scraper&logo=golang)](https://github.com/we-be/tiny-ria/actions/workflows/api-scraper-tests.yml)
 
