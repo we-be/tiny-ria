@@ -183,9 +183,16 @@ func (c *YahooProxyClient) GetMarketData(ctx context.Context, index string) (*Ma
 		changePercent, _ = data["regularMarketChangePercent"].(float64)
 	}
 	
+	// Extract index name
+	indexName, _ := data["index_name"].(string)
+	if indexName == "" {
+		// Fallback to symbol if not provided
+		indexName = index
+	}
+
 	// Create market data object
 	marketData := &MarketData{
-		IndexName:     index,
+		IndexName:     indexName,
 		Value:         value,
 		Change:        change,
 		ChangePercent: changePercent,
