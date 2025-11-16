@@ -1,0 +1,5 @@
+"Positions for account Brokerage XXXXX as of 00:00 PM ET, 1970/01/01"
+Symbol,Description,Unnamed: 2,Qty (Quantity),Price,Price Chng % (Price Change %),Price Chng $ (Price Change $),Mkt Val (Market Value),Day Chng $ (Day Change $),Day Chng % (Day Change %),Cost Basis,Gain % (Gain/Loss %),Gain $ (Gain/Loss $),Ratings,Reinvest?,Reinvest Capital Gains?,% of Acct (% of Account),Security Type,Unnamed: 18
+AAPL,APPLE INC,,10,$150.00,0.50%,$0.75,"$1,500.00",$7.50,0.50%,"$1,200.00",25.00%,$300.00,A,No,,10.00%,Equity,
+VOO,VANGUARD S&P 500 ETF,,20,$400.00,-0.10%,-$0.40,"$8,000.00",-$8.00,-0.10%,"$7,000.00",14.29%,"$1,000.00",B,Yes,Yes,53.33%,ETFs & Closed End Funds,
+CASH,Cash & Cash Investments,,,--,--,--,"$5,500.00",--,--,"$5,500.00",0.00%,$0.00,,,,36.67%,Cash and Money Market,

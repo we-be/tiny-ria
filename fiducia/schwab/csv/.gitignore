@@ -2,6 +2,7 @@
 data/*.csv
 data/*.xlsx
 data/*.xls
+!data/Brokerage-Positions-TEMPLATE.csv
 
 # Binaries for programs and plugins
 main
