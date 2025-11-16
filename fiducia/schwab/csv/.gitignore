@@ -1,3 +1,8 @@
+# Data
+data/*.csv
+data/*.xlsx
+data/*.xls
+
 # Binaries for programs and plugins
 main
 csv
