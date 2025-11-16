@@ -41,13 +41,6 @@ Manages periodic data collection jobs.
 - **Jobs**: Stock quotes, market indices
 - **Features**: Configurable schedules, API-based data collection
 
-### Dashboard
-
-Web interface for monitoring and controlling the system.
-
-- **Technology**: Python, Streamlit
-- **Features**: System health monitoring, data visualization, job management
-
 ### Infrastructure
 
 - **Database**: PostgreSQL
@@ -68,12 +61,9 @@ The system is containerized using Docker with the following services:
 - api-service
 - yahoo-proxy
 - api-scraper
-- browser-scraper
-- auth-engine
 - kafka
 - postgres
 - minio
-- dashboard
 - scheduler
 
 ## Recent Architectural Improvements

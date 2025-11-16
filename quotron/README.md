@@ -13,11 +13,7 @@ Quotron is the dedicated scraping and data ingestion pipeline within the tiny-ri
 - **Scheduler (Go)**: Cron-based job scheduling
 
 ### Work In Progress
-- **Browser Scraper (Python)**: Basic implementation, needs more features
-- **Authentication Engine (Python)**: Initial framework, needs completion
-- **Events System (Python)**: Limited implementation
 - **ETL (Go)**: High-performance replacement for the Python ingest pipeline
-- **Ingest Pipeline (Python)**: Legacy system being replaced by Go ETL
 
 ## Project Components
 
@@ -206,18 +202,6 @@ If needed, you can still interact with individual components directly:
   cd api-scraper/scripts 
   python yfinance_proxy.py --host localhost --port 5000
   ```
-- Browser Scraper: 
-  ```bash
-  cd browser-scraper/playwright 
-  python src/scraper.py
-  ```
-- Dashboard (now integrated into API service): 
-  ```bash
-  cd api-service
-  go build -o api-service ./cmd/server
-  ./api-service --port=8080
-  # Dashboard UI available at http://localhost:8501
-  ```
 - Scheduler: 
   ```bash
   cd scheduler
@@ -374,13 +358,6 @@ cd api-service
 go build -o api-service ./cmd/server
 ./api-service --port=8080
 # Dashboard UI available at http://localhost:8080
-```
-
-### Browser Scraper
-```
-cd browser-scraper/playwright
-pip install -r requirements.txt
-python src/scraper.py
 ```
 
 ## Testing

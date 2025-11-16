@@ -45,32 +45,6 @@ services:
     depends_on:
       - kafka
 
-  # Browser Scraper
-  browser-scraper:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: browser-scraper
-    environment:
-      - STOCK_SYMBOL=${STOCK_SYMBOL:-AAPL}
-    networks:
-      - quotron-network
-    depends_on:
-      - auth-engine
-
-  # Auth Engine
-  auth-engine:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: auth-engine
-    ports:
-      - "8000:8000"
-    environment:
-      - AUTH_SECRET_KEY=${AUTH_SECRET_KEY:-dev_secret_key_replace_in_production}
-    networks:
-      - quotron-network
-
   # Infrastructure Services
   
   # Kafka for event streaming
