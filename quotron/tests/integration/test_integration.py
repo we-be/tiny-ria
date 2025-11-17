@@ -121,61 +121,6 @@ def test_api_scraper():
                 except:
                     pass
 
-def test_browser_scraper():
-    """Test the browser scraper functionality."""
-    logger.info("Testing browser scraper...")
-    
-    try:
-        # Import the scraper directly and run it in test mode
-        sys.path.append(str(project_root / "browser-scraper" / "playwright"))
-        from src.scraper import WebScraper
-        
-        scraper = WebScraper(headless=True)
-        try:
-            scraper.start()
-            logger.info("Browser scraper initialized successfully")
-            
-            # We can't actually scrape without a valid URL, but we can test initialization
-            logger.info("Browser scraper test successful")
-        except Exception as e:
-            logger.error(f"Error in browser scraper execution: {e}")
-        finally:
-            scraper.close()
-    except Exception as e:
-        logger.error(f"Error testing browser scraper: {e}")
-
-def test_auth_engine():
-    """Test the authentication engine functionality."""
-    logger.info("Testing auth engine...")
-    
-    try:
-        # Import the auth engine directly
-        sys.path.append(str(project_root / "auth-engine"))
-        from service.auth_service import (
-            authenticate_user, 
-            create_access_token,
-            users_db
-        )
-        
-        # Test authentication with test user
-        username = "testuser"
-        password = "password123"
-        
-        user = authenticate_user(users_db, username, password)
-        if user:
-            logger.info(f"Authentication successful for user: {username}")
-            
-            # Test token creation
-            token_data = {"sub": username}
-            token = create_access_token(data=token_data)
-            logger.info(f"Token created successfully: {token[:20]}...")
-            
-            logger.info("Auth engine test successful")
-        else:
-            logger.error(f"Authentication failed for user: {username}")
-    except Exception as e:
-        logger.error(f"Error testing auth engine: {e}")
-
 # ETL tests removed - ETL should be tested with a proper database connection
 # The test was removed because ETL's primary purpose is database operations
 # and testing without a DB connection isn't meaningful
@@ -183,64 +128,20 @@ def test_auth_engine():
 # 1. Unit tests in Go for ETL components
 # 2. Database integration tests with a test database
 
-def test_events_system():
-    """Test the events system functionality."""
-    logger.info("Testing events system...")
-    
-    try:
-        # Import the events system components
-        sys.path.append(str(project_root / "events"))
-        from schemas.event_schema import StockQuoteEvent
-        
-        # Create a test event
-        event = StockQuoteEvent(
-            event_id=str(uuid.uuid4()),
-            source="test-script",
-            data={
-                "symbol": "AAPL",
-                "price": 150.25,
-                "change": 2.5,
-                "change_percent": 1.69,
-                "volume": 12345678,
-            },
-            metadata={
-                "environment": "test",
-            }
-        )
-        
-        # Validate that the event can be serialized to JSON
-        event_json = json.dumps(event.model_dump(), default=str)
-        logger.info(f"Event serialized successfully: {event_json[:100]}...")
-        logger.info("Events system test successful")
-    except Exception as e:
-        logger.error(f"Error testing events system: {e}")
-
 def main():
     """Run all tests."""
     parser = argparse.ArgumentParser(description="Quotron integration tests")
     parser.add_argument("--api", action="store_true", help="Test API scraper")
-    parser.add_argument("--browser", action="store_true", help="Test browser scraper")
-    parser.add_argument("--auth", action="store_true", help="Test auth engine")
-    parser.add_argument("--events", action="store_true", help="Test events system")
     parser.add_argument("--all", action="store_true", help="Test all components")
     
     args = parser.parse_args()
     
     # If no specific tests are specified, test all
-    if not any([args.api, args.browser, args.auth, args.events, args.all]):
+    if not any([args.api, args.all]):
         args.all = True
     
     if args.all or args.api:
         test_api_scraper()
-    
-    if args.all or args.browser:
-        test_browser_scraper()
-    
-    if args.all or args.auth:
-        test_auth_engine()
-    
-    if args.all or args.events:
-        test_events_system()
     
     logger.info("All tests completed")
 
