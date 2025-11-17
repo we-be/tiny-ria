@@ -1,6 +1,0 @@
-yfinance
-flask
-requests
-flask-cors
-python-dateutil
-pytz
