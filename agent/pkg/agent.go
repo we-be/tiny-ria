@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/client"
+	"github.com/tiny-ria/quotron/api-service/pkg/client"
 )
 
 // Agent represents an autonomous agent that can interact with Quotron services
 type Agent struct {
 	name              string
-	apiClient         *client.APIClient
+	apiClient         client.DataClient
 	logger            *log.Logger
 	queuePublisher    *QueuePublisher
 }
@@ -39,24 +39,24 @@ func NewAgent(config AgentConfig) *Agent {
 	}
 
 	logger := log.New(log.Writer(), logPrefix, log.LstdFlags)
-	
+
 	// Create the API client using Quotron API
 	logger.Printf("Using Quotron API service at %s:%d for data", config.APIHost, config.APIPort)
-	apiClient := client.NewAPIClient(config.APIHost, config.APIPort)
-	
+	apiClient := client.NewYahooProxyClient(config.APIHost, config.APIPort, config.Name, false)
+
 	agent := &Agent{
 		name:      config.Name,
 		apiClient: apiClient,
 		logger:    logger,
 	}
-	
+
 	// Set up Redis publisher if enabled
 	if config.EnableQueue {
 		redisAddr := config.RedisAddr
 		if redisAddr == "" {
 			redisAddr = "localhost:6379" // Default Redis address
 		}
-		
+
 		publisher, err := NewQueuePublisher(redisAddr, logger)
 		if err != nil {
 			logger.Printf("Warning: Failed to initialize Redis publisher: %v", err)
@@ -66,7 +66,7 @@ func NewAgent(config AgentConfig) *Agent {
 			logger.Printf("Redis publisher initialized, alerts will be published to the queue")
 		}
 	}
-	
+
 	return agent
 }
 
@@ -113,38 +113,38 @@ func (a *Agent) FetchStockData(ctx context.Context, symbols []string) (map[strin
 func (a *Agent) FetchCryptoData(ctx context.Context, symbols []string) (map[string]*client.StockQuote, error) {
 	a.logger.Printf("Fetching crypto data for %d symbols: %s", len(symbols), strings.Join(symbols, ", "))
 	a.logger.Printf("DEBUG: Using API client for crypto quotes")
-	
+
 	results := make(map[string]*client.StockQuote)
 	var errors []string
 
 	for _, symbol := range symbols {
 		// Clean up the symbol to use standard format
 		cleanSymbol := GetStandardTickerSymbol(symbol)
-		
+
 		// Extra validation of symbol formats
 		if !isValidSymbol(cleanSymbol) {
 			a.logger.Printf("ERROR: Invalid symbol format: %s (cleaned to: %s)", symbol, cleanSymbol)
 			errors = append(errors, fmt.Sprintf("%s: invalid symbol format", symbol))
 			continue
 		}
-		
+
 		a.logger.Printf("DEBUG: Requesting crypto quote for %s (clean symbol: %s) from Quotron API", symbol, cleanSymbol)
-		quote, err := a.apiClient.GetCryptoQuote(ctx, cleanSymbol)
+		quote, err := a.apiClient.GetStockQuote(ctx, cleanSymbol)
 		if err != nil {
 			a.logger.Printf("CURL: curl -v 'http://localhost:8080/api/quote/%s'", url.PathEscape(cleanSymbol))
 			a.logger.Printf("ERROR: Failed fetching crypto quote for %s: %v", symbol, err)
 			errors = append(errors, fmt.Sprintf("%s: %v", symbol, err))
 			continue
 		}
-		
+
 		results[symbol] = quote
 		a.logger.Printf("Successfully fetched crypto quote for %s: Price=$%.2f", symbol, quote.Price)
 	}
-	
+
 	if len(errors) > 0 {
 		return results, fmt.Errorf("errors fetching some crypto quotes: %s", strings.Join(errors, "; "))
 	}
-	
+
 	return results, nil
 }
 
@@ -183,7 +183,7 @@ func (a *Agent) FetchMarketData(ctx context.Context, indices []string) (map[stri
 		results[originalIndex] = data
 		a.logger.Printf("Successfully fetched market data for %s: Value=%.2f", originalIndex, data.Value)
 	}
-	
+
 	if len(errors) > 0 {
 		return results, fmt.Errorf("errors fetching some market data: %s", strings.Join(errors, "; "))
 	}

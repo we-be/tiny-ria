@@ -19,7 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/we-be/tiny-ria/agent/pkg"
-	"github.com/we-be/tiny-ria/quotron/scheduler/pkg/client"
+	"github.com/tiny-ria/quotron/api-service/pkg/client"
 )
 
 //go:embed static templates
@@ -1060,7 +1060,7 @@ func (s *WebServer) processCommand(conn *ThreadSafeConn, command string, data ma
 		// Determine if it's a crypto symbol (contains dash)
 		var quote *client.StockQuote
 		var err error
-		
+
 		if strings.Contains(symbol, "-") {
 			// Fetch crypto quote
 			cryptoResult, err := s.assistant.GetAgent().FetchCryptoData(ctx, []string{symbol})
