@@ -1,9 +1,8 @@
-# Binaries and executables
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# add ignores here
+# ...
+
+# quotron
+# a lot of these can be removed
 /quotron/quotron
 /quotron/cli/quotron
 /quotron/api-scraper/api-scraper
@@ -15,7 +14,21 @@
 /quotron/etl/simple_benchmark
 /quotron/etl/modelcli
 /quotron/health/bin/*
+quotron/dashboard/scheduler_heartbeat
+quotron/scheduler/scheduler_heartbeat
+quotron/*/run_*.sh
+quotron/diagnostics_report.md
+quotron/health_report.json
+quotron/scheduler/data/
+quotron/browser-scraper/output/
 !/quotron/health/bin/.gitkeep
+
+# Binaries and executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
 # Go specific
 *.test
@@ -68,14 +81,6 @@ wheels/
 log/
 logs/
 
-# Data files
-quotron/scheduler/data/
-quotron/browser-scraper/output/
-
-# Configuration files
-# quotron/quotron.json             # Uncomment to ignore local config
-# quotron/scheduler-config.json    # Uncomment to ignore local config
-
 # IDE files
 .vscode/
 .idea/
@@ -85,13 +90,6 @@ quotron/browser-scraper/output/
 # Streamlit specific
 .streamlit/
 
-# Scheduler and service runtime files
-quotron/dashboard/scheduler_heartbeat
-quotron/scheduler/scheduler_heartbeat
-quotron/*/run_*.sh
-
 # Agent context
 context.txt
-quotron/diagnostics_report.md
-quotron/health_report.json
 */bin/ria
