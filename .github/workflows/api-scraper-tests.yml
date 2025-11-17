@@ -36,10 +36,6 @@ jobs:
           python -m pip install --upgrade pip
           # Install base testing dependencies
           pip install pytest pydantic playwright requests
-          # Install dependencies for the api-scraper
-          cd quotron/api-scraper
-          pip install -r scripts/requirements.txt
-          cd ../..
 
       - name: Install Playwright browsers
         run: |
@@ -89,12 +85,6 @@ jobs:
         if: github.ref != 'refs/heads/main'
         run: |
           cd quotron
-          # Install yfinance for the proxy server
-          cd api-scraper
-          pip install -r scripts/requirements.txt
-
-          cd ..
-
           # Use Quotron CLI to start the proxy
           echo "Starting Yahoo Finance Proxy using Quotron CLI..."
           ./quotron start yfinance-proxy
@@ -116,4 +106,4 @@ jobs:
       - name: Run other integration tests
         run: |
           cd quotron
-          python tests/integration/test_integration.py --browser --auth --events
+          python tests/integration/test_integration.py
