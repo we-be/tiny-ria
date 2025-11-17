@@ -39,8 +39,6 @@ func main() {
 		if err == nil {
 			// No need to save reference, we use defer
 			apiClient = proxyCl
-			// Make sure to stop the proxy on exit
-			defer proxyCl.Stop()
 		} else {
 			// Fall back to direct REST API if proxy fails
 			log.Printf("Warning: Failed to start Yahoo Finance proxy: %v, falling back to direct API", err)

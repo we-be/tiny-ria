@@ -32,85 +32,8 @@ type YahooProxyClient struct {
 }
 
 // NewYahooProxyClient creates a new Yahoo Finance proxy client and starts the proxy server
-func NewYahooProxyClient(timeout time.Duration) (*YahooProxyClient, error) {
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
-	// Get proxy URL from environment or use default
-	proxyURL := os.Getenv("YAHOO_PROXY_URL")
-	if proxyURL == "" {
-		proxyURL = "http://localhost:5000"
-	}
-
-	// Check if we're already running a proxy via daemon_proxy.sh
-	// First look for the PID file
-	var cmd *exec.Cmd
-	if _, err := os.Stat("/tmp/yfinance_proxy.pid"); os.IsNotExist(err) {
-		// No PID file, check if we have run_proxy.sh
-		scriptPath := "./scripts/run_proxy.sh"
-		if _, err := os.Stat(scriptPath); err == nil {
-			// Use run_proxy.sh instead of direct Python call
-			cmd = exec.Command(scriptPath, "--host", "localhost", "--port", "5000")
-		} else {
-			// Try daemon_proxy.sh
-			daemonScript := "./scripts/daemon_proxy.sh"
-			if _, err := os.Stat(daemonScript); err == nil {
-				// Use daemon script
-				cmd = exec.Command(daemonScript, "--host", "localhost", "--port", "5000")
-			} else {
-				// Fall back to direct Python invocation
-				scriptPath := "./scripts/yfinance_proxy.py"
-				cmd = exec.Command("python3", scriptPath, "--host", "localhost", "--port", "5000")
-			}
-		}
-		
-		// Start the process
-		if err := cmd.Start(); err != nil {
-			return nil, errors.Wrap(err, "failed to start Yahoo Finance proxy server")
-		}
-	} else {
-		// PID file exists, proxy may already be running
-		// We'll still create a cmd for proper cleanup but won't start it
-		cmd = exec.Command("echo", "Proxy already running")
-	}
-
-	// Create the client
-	client := &YahooProxyClient{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		proxyURL:     proxyURL,
-		proxyProcess: cmd,
-		timeout:      timeout,
-	}
-
-	// Wait for the server to start (simple approach)
-	time.Sleep(5 * time.Second)
-
-	// Check if the server is running
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, proxyURL+"/health", nil)
-	if err != nil {
-		client.Stop()
-		return nil, errors.Wrap(err, "failed to create health check request")
-	}
-
-	resp, err := client.httpClient.Do(req)
-	if err != nil {
-		client.Stop()
-		return nil, errors.Wrap(err, "failed to connect to Yahoo Finance proxy server")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		client.Stop()
-		return nil, errors.Errorf("Yahoo Finance proxy server health check failed: %d", resp.StatusCode)
-	}
-
-	return client, nil
+func NewYahooProxyClient(timeout time.Duration) (Client, error) {
+	return NewYahooFinanceClient(timeout), nil
 }
 
 // Stop stops the proxy server process

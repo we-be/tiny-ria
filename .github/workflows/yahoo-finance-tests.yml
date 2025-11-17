@@ -34,8 +34,6 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        cd quotron/api-scraper
-        pip install -r scripts/requirements.txt
 
     - name: Download Latest CLI Release
       run: |
